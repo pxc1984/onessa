@@ -5,6 +5,8 @@
       <sourceFolder url="file://$MODULE_DIR$/src/bin/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/src/lib/core/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/src/lib/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/src/lib/utils/logging/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/src/lib/utils/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/src/tests/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
     </content>

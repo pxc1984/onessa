@@ -1,0 +1,17 @@
+[package]
+name = "onessa"
+edition.workspace = true
+version.workspace = true
+
+[dependencies]
+clap = { workspace = true }
+tracing = { workspace = true }
+
+onessa-logging = { workspace = true }
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "onessa"
+path = "src/main.rs"

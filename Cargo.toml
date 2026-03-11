@@ -12,7 +12,9 @@ resolver = "2"
 #================= Members =================#
 members = [
     "src/bin",
-    "src/lib/*",
+    "src/lib/core",
+    "src/lib/utils",
+    "src/lib/utils/logging",
     "src/tests",
 ]
 
@@ -75,6 +77,11 @@ debug = true
 
 #=============== Dependencies ==============#
 [workspace.dependencies]
+# Members
+onessa-core = { path = "src/lib/core"}
+onessa-utils = { path = "src/lib/utils"}
+onessa-logging = { path = "src/lib/utils/logging"}
+
 # Asynchronous
 tokio = { version = "1.49.0", features = [
     "macros",

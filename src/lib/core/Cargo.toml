@@ -1,5 +1,5 @@
 [package]
-name = "onessa-lib"
+name = "onessa-core"
 edition.workspace = true
 version.workspace = true
 publish = false
