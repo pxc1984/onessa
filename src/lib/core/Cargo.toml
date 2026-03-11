@@ -1,0 +1,14 @@
+[package]
+name = "onessa-lib"
+edition.workspace = true
+version.workspace = true
+publish = false
+
+[dependencies]
+
+[lints]
+workspace = true
+
+[lib]
+name = "onessa_lib"
+path = "src/lib.rs"

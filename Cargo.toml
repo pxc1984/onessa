@@ -1,0 +1,175 @@
+# Onessa Project workspace
+#
+# Layout of this file:
+# - Members of the workspace.
+# - Profile compilation settings.
+# - Workspace lints
+# - Workspace dependencies.
+
+[workspace]
+resolver = "2"
+
+#================= Members =================#
+members = [
+    "src/bin",
+    "src/lib/*",
+    "src/tests",
+]
+
+[workspace.package]
+edition = "2021"
+version = "0.1.0"
+
+#================== Lints ==================#
+[workspace.lints.rust]
+unsafe_code = "allow"
+unused_unsafe = "deny"
+#unsafe_op_in_unsafe_fn = "deny"
+#unused_crate_dependencies = "deny"
+unused_import_braces = "deny"
+unused_lifetimes = "deny"
+keyword_idents_2018 = "deny"
+keyword_idents_2024 = "deny"
+missing_abi = "deny"
+future_incompatible = { level = "deny", priority = -1 }
+
+[workspace.lints.clippy]
+borrow_as_ptr = "deny"
+case_sensitive_file_extension_comparisons = "deny"
+cast_lossless = "deny"
+cast_ptr_alignment = "deny"
+match_bool = "deny"
+mut_mut = "deny"
+wildcard_dependencies = "deny"
+redundant_type_annotations = "deny"
+infinite_loop = "deny"
+
+#================= Profile =================#
+[profile.profiling]
+inherits = "release"
+debug = true
+
+[profile.release]
+#debug = true
+
+[profile.hyper]
+inherits = "release"
+strip = "symbols"
+lto = true
+opt-level = 3
+debug = false
+debug-assertions = false
+overflow-checks = false
+panic = "abort"
+codegen-units = 1
+
+[profile.production]
+inherits = "release"
+strip = "symbols"
+lto = true
+opt-level = 3
+codegen-units = 1
+
+[profile.bench]
+debug = true
+
+#=============== Dependencies ==============#
+[workspace.dependencies]
+# Asynchronous
+tokio = { version = "1.49.0", features = [
+    "macros",
+    "rt",
+    "sync",
+    "time",
+    "io-util",
+    "test-util",
+    "rt-multi-thread"
+], default-features = false }
+
+# Logging
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
+tracing-appender = "0.2.4"
+tracing-tracy = { version = "0.11.4", features = ["timer-fallback", "ondemand", "fibers", "context-switch-tracing", "delayed-init"] }
+log = "0.4.29"
+tracy-client = "0.18.4"
+
+# Concurrency/Parallelism
+parking_lot = "0.12.5"
+rayon = "1.11.0"
+crossbeam-channel = "0.5.15"
+rusty_pool = "0.7.0"
+crossbeam-queue = "0.3.12"
+
+# Network
+reqwest = { version = "0.13.1", features = ["json", "rustls", "blocking", "http2"], default-features = false }
+
+# Error handling
+thiserror = "2.0.18"
+anyhow = "1.0.100"
+
+# Cryptography
+rand = "0.8.5"
+fnv = "1.0.7"
+wyhash = "0.6.0"
+ahash = "0.8.12"
+rsa = { version = "0.9.9" }
+aes = { version = "0.8.4" }
+cfb8 = "0.8.1"
+sha1 = "0.10.6"
+num-bigint = "0.4.6"
+
+# Encoding/Serialization
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.149"
+serde_derive = "1.0.228"
+base64 = "0.22.1"
+
+bitcode = "0.6.9"
+bitcode_derive = "0.6.9"
+toml = "0.9.11"
+craftflow-nbt = "2.1.0"
+figment = { version = "0.10.19", features = ["toml", "env"] }
+simd-json = "0.17.0"
+bytemuck = { version = "1.24.0", features = ["extern_crate_alloc", "derive"] }
+serde_yaml_ng = "0.10.0"
+
+# Bit manipulation
+byteorder = "1.5.0"
+
+# Data types
+dashmap = "7.0.0-rc2"
+uuid = { version = "1.19.0", features = ["v4", "v3", "serde"] }
+indexmap = { version = "2.13.0", features = ["serde"] }
+bimap = "0.6.3"
+
+# Macros
+lazy_static = "1.5.0"
+quote = "1.0.44"
+syn = { version = "2.0.114", features = ["extra-traits"] }
+proc-macro2 = "1.0.106"
+paste = "1.0.15"
+maplit = "1.0.2"
+macro_rules_attribute = "0.2.2"
+
+# Compression/Decompression
+yazi = "0.2.1"
+
+# CLI
+clap = { version = "4.5.54", features = ["derive", "env"] }
+indicatif = "0.18.3"
+colored = "3.1.1"
+
+# Misc
+regex = "1.12.2"
+
+# I/O
+memmap2 = "0.9.9"
+tempfile = "3.24.0"
+
+# Benchmarking
+criterion = { version = "0.7.0", features = ["html_reports"] }
+
+# Stats
+sysinfo = { version = "0.37.2", default-features = false, features = ["system"] }
+dir-size = "0.1.1"

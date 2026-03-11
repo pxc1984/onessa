@@ -1,0 +1,30 @@
+# Build output
+/target/
+**/target/
+
+# Editor/IDE
+.idea
+.vscode
+.zed
+
+# Workspace artifacts
+Cargo.lock
+config.toml
+.temp
+
+# Repo-specific
+/crates/lib/dummy_lib/Cargo.lock
+.etc/blocks.json
+flame.svg
+
+# Environment
+.direnv
+result
+result-*
+profile.json.gz
+.DS_Store
+
+# Misc
+/world
+whitelist.txt
+logs/
