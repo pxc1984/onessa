@@ -19,8 +19,6 @@ use std::path::PathBuf;
 ///
 pub fn get_root_path() -> PathBuf {
     let cur_exe = current_exe().expect("Failed to find current executable");
-    let cur_parent = cur_exe
-        .parent()
-        .expect("Failed to find current parent");
+    let cur_parent = cur_exe.parent().expect("Failed to find current parent");
     cur_parent.to_path_buf()
 }

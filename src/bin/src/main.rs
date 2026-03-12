@@ -1,6 +1,6 @@
 use clap::Parser;
-use tracing::debug;
 use onessa_logging::init_logging;
+use tracing::debug;
 
 use crate::cli::CLIArgs;
 

@@ -1,5 +1,5 @@
-use clap::{Parser, Subcommand, ValueEnum};
 use clap::builder::PossibleValue;
+use clap::{Parser, Subcommand, ValueEnum};
 use tracing::Level;
 
 #[derive(Parser, Debug)]
