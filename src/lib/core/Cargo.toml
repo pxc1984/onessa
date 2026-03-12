@@ -5,10 +5,11 @@ version.workspace = true
 publish = false
 
 [dependencies]
+log = "0.4.29"
 
 [lints]
 workspace = true
 
 [lib]
-name = "onessa_lib"
+name = "onessa_core"
 path = "src/lib.rs"

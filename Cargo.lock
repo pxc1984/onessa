@@ -315,6 +315,7 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "logos",
+ "onessa-core",
  "onessa-logging",
  "rowan",
  "tracing",
@@ -323,6 +324,9 @@ dependencies = [
 [[package]]
 name = "onessa-core"
 version = "0.1.0"
+dependencies = [
+ "log",
+]
 
 [[package]]
 name = "onessa-logging"

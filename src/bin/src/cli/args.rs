@@ -1,11 +1,12 @@
 use clap::builder::PossibleValue;
 use clap::{Parser, Subcommand, ValueEnum};
+use std::path::PathBuf;
 use tracing::Level;
 
 #[derive(Parser, Debug)]
 pub struct CLIArgs {
     #[command(subcommand)]
-    pub command: Option<Command>,
+    pub command: Command,
 
     #[clap(long)]
     #[arg(value_enum)]
@@ -16,7 +17,15 @@ pub struct CLIArgs {
 
 #[derive(Subcommand, Clone, Debug)]
 pub enum Command {
-    Compile,
+    Compile(CompileArgs),
+}
+
+#[derive(Debug, Clone, Parser)]
+pub struct CompileArgs {
+    pub input: Option<PathBuf>,
+
+    #[clap(long, short)]
+    pub output: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Copy)]
