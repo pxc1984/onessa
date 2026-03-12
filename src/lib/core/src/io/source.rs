@@ -21,7 +21,9 @@ impl Display for ErrorKind {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             ErrorKind::Io(err) => err.fmt(f),
-            ErrorKind::FileTooBig(path) => write!(f, "file {} is too big (>{MAX_FILE_SIZE}", path.display()),
+            ErrorKind::FileTooBig(path) => {
+                write!(f, "file {} is too big (>{MAX_FILE_SIZE}", path.display())
+            }
         }
     }
 }
