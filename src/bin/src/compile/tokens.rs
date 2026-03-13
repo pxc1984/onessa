@@ -6,7 +6,7 @@
 /// генерирующегося макросами логоса
 /// =============!!!=============
 ///
-use chrono::{DateTime, Utc, TimeZone};
+use chrono::{DateTime, TimeZone, Utc};
 use logos::{Lexer, Logos};
 
 #[derive(Logos, Debug, PartialEq, Clone, PartialOrd)]
@@ -293,7 +293,8 @@ fn parse_date(lex: &mut Lexer<Token>) -> Option<DateTime<Utc>> {
             let hour = date_str[8..10].parse().ok()?;
             let minute = date_str[10..12].parse().ok()?;
             let second = date_str[12..14].parse().ok()?;
-            Utc.with_ymd_and_hms(year, month, day, hour, minute, second).single()
+            Utc.with_ymd_and_hms(year, month, day, hour, minute, second)
+                .single()
         }
         _ => panic!("Invalid date format: {}", date_str),
     }
