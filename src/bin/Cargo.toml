@@ -16,6 +16,7 @@ chrono = "0.4.44"
 
 [features]
 lexer_dump = []
+ast_dump = []
 
 [lints]
 workspace = true
