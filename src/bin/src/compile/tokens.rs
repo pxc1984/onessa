@@ -1,5 +1,6 @@
 /// Этот файл содержит лексер для языка и юнит-тесты, подтверждающие корректную работу.
-use logos::Logos;
+use chrono::{DateTime, Utc};
+use logos::{Lexer, Logos};
 
 #[derive(Logos, Debug, PartialEq, Clone)]
 #[logos(skip(r"[ \t\n\f]+"))]
@@ -42,6 +43,12 @@ pub enum Token {
     #[token(";")]
     Semicolon,
 
+    #[token(".")]
+    Period,
+
+    #[token("?")]
+    QuestionMark,
+
     #[token(",")]
     Comma,
 
@@ -50,6 +57,12 @@ pub enum Token {
 
     #[token(")")]
     RParen,
+
+    #[token("[")]
+    LSqParen,
+
+    #[token("]")]
+    RSqParen,
 
     // 4. Ключевые слова (с приоритетом выше, чем у идентификаторов)
     // Операторы цикла и условия
@@ -197,22 +210,93 @@ pub enum Token {
     New,
 
     // 5. Литералы
-    #[regex(r"-?\d+(\.\d+)?", priority = 3)]
-    NumberLiteral,
+    #[regex(r"-?\d+(\.\d+)?", priority = 3, callback = parse_number)]
+    NumberLiteral(f64),
 
-    #[regex(r#""([^"\\]|\\["\\nrt\t])*""#, priority = 3)]
-    StringLiteral,
+    #[regex(r#""([^"\\]|\\["\\nrt\t])*""#, priority = 3, callback = parse_string)]
+    StringLiteral(String),
 
-    #[regex(r"'\d{8,}'", priority = 3)]
-    DateLiteral,
+    #[regex(r"'\d{8,}'", priority = 3, callback = parse_date)]
+    DateLiteral(DateTime<Utc>),
 
     // 6. Идентификаторы (В САМОМ КОНЦЕ, с наименьшим приоритетом)
-    #[regex(r"[_\p{XID_Start}][\p{XID_Continue}]*", priority = 1)]
-    Identifier,
+    #[regex(r"[_\p{XID_Start}][\p{XID_Continue}]*", priority = 1, callback = parse_identifier)]
+    Identifier(String),
+}
+
+fn parse_number(lex: &mut Lexer<Token>) -> Option<f64> {
+    lex.slice().parse().ok()
+}
+
+fn parse_string(lex: &mut Lexer<Token>) -> String {
+    let slice = lex.slice();
+    // Remove surrounding quotes
+    let mut result = String::new();
+    let chars = slice[1..slice.len()-1].chars().peekable();
+
+    let mut escape = false;
+    let mut linebreak = false;
+    for c in chars {
+        if linebreak && c == '|' {
+            linebreak = false;
+        } else if escape {
+            match c {
+                'n' => result.push('\n'),
+                't' => result.push('\t'),
+                'r' => result.push('\r'),
+                '"' => result.push('"'),
+                '\\' => result.push('\\'),
+                _ => result.push(c),
+            }
+            escape = false;
+        } else if c == '\n' {
+            result.push('\n');
+            linebreak = true;
+        } else if c == '\\' {
+            escape = true;
+        } else {
+            result.push(c);
+        }
+    }
+
+    result
+}
+
+fn parse_date(lex: &mut Lexer<Token>) -> DateTime<Utc> {
+    let slice = lex.slice();
+    // Remove surrounding quotes
+    let date_str = &slice[1..slice.len()-1];
+
+    // Parse date in format YYYYMMDD or YYYYMMDDHHMMSS
+    use chrono::TimeZone;
+
+    match date_str.len() {
+        8 => {
+            let year = date_str[0..4].parse().unwrap();
+            let month = date_str[4..6].parse().unwrap();
+            let day = date_str[6..8].parse().unwrap();
+            Utc.with_ymd_and_hms(year, month, day, 0, 0, 0).unwrap()
+        }
+        14 => {
+            let year = date_str[0..4].parse().unwrap();
+            let month = date_str[4..6].parse().unwrap();
+            let day = date_str[6..8].parse().unwrap();
+            let hour = date_str[8..10].parse().unwrap();
+            let minute = date_str[10..12].parse().unwrap();
+            let second = date_str[12..14].parse().unwrap();
+            Utc.with_ymd_and_hms(year, month, day, hour, minute, second).unwrap()
+        }
+        _ => panic!("Invalid date format: {}", date_str),
+    }
+}
+
+fn parse_identifier(lex: &mut Lexer<Token>) -> String {
+    lex.slice().to_string()
 }
 
 #[cfg(test)]
 mod tests {
+    use chrono::TimeZone;
     use super::*;
     use logos::Logos;
 
@@ -286,9 +370,9 @@ mod tests {
             "Перем А = 5;",
             &[
                 Token::Var,
-                Token::Identifier,
+                Token::Identifier("А".to_string()),
                 Token::Eq,
-                Token::NumberLiteral,
+                Token::NumberLiteral(5f64),
                 Token::Semicolon,
             ],
         );
@@ -345,11 +429,11 @@ mod tests {
             "Процедура Тест Экспорт КонецПроцедуры Функция F Знач КонецФункции",
             &[
                 Token::Procedure,
-                Token::Identifier,
+                Token::Identifier("Тест".to_string()),
                 Token::Export,
                 Token::EndProcedure,
                 Token::Function,
-                Token::Identifier,
+                Token::Identifier("F".to_string()),
                 Token::Val,
                 Token::EndFunction,
             ],
@@ -384,13 +468,13 @@ mod tests {
         assert_tokens(
             "0 -1 12.5 \"строка\" \"строка\\n\\t\\\"ок\\\"\" '20240101' '19990101000000'",
             &[
-                Token::NumberLiteral,
-                Token::NumberLiteral,
-                Token::NumberLiteral,
-                Token::StringLiteral,
-                Token::StringLiteral,
-                Token::DateLiteral,
-                Token::DateLiteral,
+                Token::NumberLiteral(0f64),
+                Token::NumberLiteral(-1f64),
+                Token::NumberLiteral(12.5f64),
+                Token::StringLiteral("строка".to_string()),
+                Token::StringLiteral("строка\n\t\"ок\"".to_string()),
+                Token::DateLiteral(Utc.with_ymd_and_hms(2024, 01, 01, 0, 0, 0).unwrap()),
+                Token::DateLiteral(Utc.with_ymd_and_hms(1999, 01, 01, 0, 0, 0).unwrap()),
             ],
         );
     }
@@ -442,10 +526,10 @@ mod tests {
         assert_tokens(
             "_a _переменная ИмяПеременной имя_переменной",
             &[
-                Token::Identifier,
-                Token::Identifier,
-                Token::Identifier,
-                Token::Identifier,
+                Token::Identifier("_a".to_string()),
+                Token::Identifier("_переменная".to_string()),
+                Token::Identifier("ИмяПеременной".to_string()),
+                Token::Identifier("имя_переменной".to_string()),
             ],
         );
     }
@@ -459,20 +543,20 @@ mod tests {
             КонецПроцедуры",
             &[
                 Token::Procedure,
-                Token::Identifier,
+                Token::Identifier("СформироватьОтчет".to_string()),
                 Token::LParen,
-                Token::Identifier,
+                Token::Identifier("Период".to_string()),
                 Token::Comma,
                 Token::Val,
-                Token::Identifier,
+                Token::Identifier("Параметр".to_string()),
                 Token::RParen,
                 Token::Export,
                 Token::Var,
-                Token::Identifier,
+                Token::Identifier("Сумма".to_string()),
                 Token::Semicolon,
-                Token::Identifier,
+                Token::Identifier("Сумма".to_string()),
                 Token::Eq,
-                Token::NumberLiteral,
+                Token::NumberLiteral(0f64),
                 Token::Semicolon,
                 Token::EndProcedure,
             ],
@@ -487,18 +571,18 @@ mod tests {
             КонецФункции",
             &[
                 Token::Function,
-                Token::Identifier,
+                Token::Identifier("Рассчитать".to_string()),
                 Token::LParen,
                 Token::Val,
-                Token::Identifier,
+                Token::Identifier("A".to_string()),
                 Token::Comma,
                 Token::Val,
-                Token::Identifier,
+                Token::Identifier("B".to_string()),
                 Token::RParen,
                 Token::Return,
-                Token::Identifier,
+                Token::Identifier("A".to_string()),
                 Token::Plus,
-                Token::Identifier,
+                Token::Identifier("B".to_string()),
                 Token::Semicolon,
                 Token::EndFunction,
             ],
@@ -515,9 +599,9 @@ mod tests {
             КонецЕсли",
             &[
                 Token::If,
-                Token::Identifier,
+                Token::Identifier("A".to_string()),
                 Token::Ne,
-                Token::Identifier,
+                Token::Identifier("B".to_string()),
                 Token::Then,
                 Token::Return,
                 Token::True,
@@ -539,15 +623,15 @@ mod tests {
             КонецЦикла",
             &[
                 Token::While,
-                Token::Identifier,
+                Token::Identifier("Счетчик".to_string()),
                 Token::Lt,
-                Token::NumberLiteral,
+                Token::NumberLiteral(10f64),
                 Token::Do,
-                Token::Identifier,
+                Token::Identifier("Счетчик".to_string()),
                 Token::Eq,
-                Token::Identifier,
+                Token::Identifier("Счетчик".to_string()),
                 Token::Plus,
-                Token::NumberLiteral,
+                Token::NumberLiteral(1f64),
                 Token::Semicolon,
                 Token::EndDo,
             ],

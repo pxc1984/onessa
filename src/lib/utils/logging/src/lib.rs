@@ -12,6 +12,7 @@ pub fn init_logging(level: Level) {
         #[cfg(debug_assertions)]
         {
             tracing_subscriber::fmt::layer()
+                .without_time()
                 .with_file(true)
                 .with_line_number(true)
                 .with_level(true)

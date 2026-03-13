@@ -1,0 +1,69 @@
+Procedure CalculateEmployeeSalary(EmployeeRef, PeriodStart, PeriodEnd, CalculateBonus = False)
+
+    // Variable declarations
+    Var SalaryAmount, BonusAmount, TotalAmount;
+    Var Query, QueryResult;
+    Var TimeSheetRecord;
+
+    // Initialize variables
+    SalaryAmount = 0;
+    BonusAmount = 0;
+    TotalAmount = 0;
+
+    // Check if parameters are valid
+    If EmployeeRef = Undefined OR EmployeeRef = Null Then
+        MessageBox("Please select an employee!");
+        Return;
+    EndIf;
+
+    If PeriodStart > PeriodEnd Then
+        MessageBox("Invalid period specified!");
+        Return;
+    EndIf;
+
+    // Get employee's base salary from database
+    Query = New Query;
+    Query.Text =
+    "SELECT
+    |   Employees.Salary AS BaseSalary,
+    |   Employees.Position AS Position,
+    |   Employees.Department AS Department
+    |FROM
+    |   Directory.Employees AS Employees
+    |WHERE
+    |   Employees.Ref = &EmployeeRef";
+
+    Query.SetParameter("EmployeeRef", EmployeeRef);
+    QueryResult = Query.Execute();
+
+    If QueryResult.IsEmpty() Then
+        MessageBox("Employee not found!");
+        Return;
+    EndIf;
+
+    // Get salary amount
+    SalaryAmount = QueryResult[0].BaseSalary;
+
+    // Calculate worked days from timesheet
+    TimeSheetRecord = GetWorkedDays(EmployeeRef, PeriodStart, PeriodEnd);
+
+    // Adjust salary based on actual worked days
+    If TimeSheetRecord.WorkedDays < TimeSheetRecord.WorkingDays Then
+        SalaryAmount = SalaryAmount * (TimeSheetRecord.WorkedDays / TimeSheetRecord.WorkingDays);
+    EndIf;
+
+    // Calculate bonus if applicable
+    If CalculateBonus = True Then
+        BonusAmount = CalculateBonusAmount(EmployeeRef, SalaryAmount, PeriodEnd);
+    EndIf;
+
+    // Calculate total
+    TotalAmount = SalaryAmount + BonusAmount;
+
+    // Save calculation results
+    SaveSalaryCalculation(EmployeeRef, PeriodStart, PeriodEnd, SalaryAmount, BonusAmount, TotalAmount);
+
+    // Display results
+    ShowCalculationResults(EmployeeRef, SalaryAmount, BonusAmount, TotalAmount);
+
+EndProcedure

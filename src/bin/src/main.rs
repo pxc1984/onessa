@@ -2,7 +2,7 @@ extern crate core;
 
 use clap::Parser;
 use onessa_logging::init_logging;
-use tracing::debug;
+use log::debug;
 
 use crate::cli::{CLIArgs, Command};
 use crate::compile::compile;

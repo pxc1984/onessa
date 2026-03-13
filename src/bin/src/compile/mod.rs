@@ -5,7 +5,7 @@ use crate::compile::tokens::Token;
 use logos::Logos;
 use onessa_core::io::Source;
 use std::process::exit;
-use tracing::{debug, error, info};
+use log::{debug, error, info};
 
 pub fn compile(args: CompileArgs) {
     let source = Source::open(args.input).unwrap_or_else(|err| {
@@ -26,14 +26,14 @@ pub fn compile(args: CompileArgs) {
 use logos::Lexer;
 #[cfg(feature = "lexer_dump")]
 fn lexer_dump(lexer: &Lexer<Token>) {
-    use tracing::{debug, error, info};
+    use log::{debug, error, info};
     let mut lexer = lexer.clone();
 
     info!("Starting debug lexer token dumping");
-    while let Some(token) = lexer.next() {
+    for token in lexer {
         match token {
             Ok(token) => {
-                debug!("{:#?}\t{:#?}\t{:#?}", token, lexer.span(), lexer.slice());
+                debug!("{:#?}", token);
             }
             Err(_) => {
                 error!("Failed to read next token");

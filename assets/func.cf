@@ -1,0 +1,137 @@
+Function CalculateEmployeeBonus(EmployeeRef, CalculationPeriod, QualificationLevel = "Standard") Export
+
+    // Variable declarations
+    Var BonusPercentage, BaseAmount, ExperienceYears, TotalBonus;
+    Var PerformanceScore, DepartmentCoefficient;
+    Var Query, QueryResult;
+
+    // Initialize default values
+    BonusPercentage = 0;
+    BaseAmount = 0;
+    TotalBonus = 0;
+    PerformanceScore = 1.0;
+
+    // Validate input parameters
+    If EmployeeRef = Undefined OR ValueIsFilled(EmployeeRef) = False Then
+        Return 0; // Return zero bonus for invalid employee
+    EndIf;
+
+    // Get employee data from database
+    Query = New Query;
+    Query.Text =
+    "SELECT
+    |   Employees.Salary AS BaseSalary,
+    |   Employees.HireDate AS HireDate,
+    |   Employees.Department AS Department,
+    |   Employees.PerformanceRating AS Rating
+    |FROM
+    |   Directory.Employees AS Employees
+    |WHERE
+    |   Employees.Ref = &EmployeeRef";
+
+    Query.SetParameter("EmployeeRef", EmployeeRef);
+    QueryResult = Query.Execute().Select();
+
+    If QueryResult.Next() = False Then
+        Return 0; // Employee not found
+    EndIf;
+
+    // Extract employee data
+    BaseAmount = QueryResult.BaseSalary;
+
+    // Calculate years of experience
+    ExperienceYears = Floor((CurrentDate() - QueryResult.HireDate) / 365.25);
+
+    // Determine bonus percentage based on qualification level
+    If QualificationLevel = "High" Then
+        BonusPercentage = 30;
+    ElseIf QualificationLevel = "Standard" Then
+        BonusPercentage = 20;
+    ElseIf QualificationLevel = "Entry" Then
+        BonusPercentage = 10;
+    Else
+        BonusPercentage = 15; // Default percentage
+    EndIf;
+
+    // Adjust bonus based on experience
+    If ExperienceYears > 5 Then
+        BonusPercentage = BonusPercentage + 5;
+    ElseIf ExperienceYears < 1 Then
+        BonusPercentage = BonusPercentage - 5;
+    EndIf;
+
+    // Get department coefficient
+    DepartmentCoefficient = GetDepartmentBonusCoefficient(QueryResult.Department);
+
+    // Get performance score from rating
+    If QueryResult.Rating = "Excellent" Then
+        PerformanceScore = 1.5;
+    ElseIf QueryResult.Rating = "Good" Then
+        PerformanceScore = 1.2;
+    ElseIf QueryResult.Rating = "Satisfactory" Then
+        PerformanceScore = 1.0;
+    ElseIf QueryResult.Rating = "Poor" Then
+        PerformanceScore = 0.5;
+    EndIf;
+
+    // Calculate total bonus
+    TotalBonus = BaseAmount * (BonusPercentage / 100) * DepartmentCoefficient * PerformanceScore;
+
+    // Apply any company-wide bonus limits
+    TotalBonus = ApplyBonusLimits(TotalBonus, CalculationPeriod);
+
+    // Round to 2 decimal places
+    TotalBonus = Round(TotalBonus, 2);
+
+    // Log the calculation for audit purposes
+    WriteBonusCalculationLog(EmployeeRef, CalculationPeriod, TotalBonus, BonusPercentage, PerformanceScore);
+
+    Return TotalBonus;
+
+EndFunction
+
+Function FormatDocumentNumber(DocumentNumber, Series, Prefix = "DOC-", TotalLength = 10) Export
+
+    Var FormattedNumber, NumberString, SeriesString;
+    Var PaddingLength, PaddingZeros;
+
+    // Initialize
+    FormattedNumber = "";
+
+    // Validate input
+    If DocumentNumber = Undefined OR DocumentNumber <= 0 Then
+        Return Prefix + "000000";
+    EndIf;
+
+    // Convert to string
+    NumberString = String(DocumentNumber);
+
+    // Handle series
+    If Series = Undefined OR Series = "" Then
+        SeriesString = "";
+    Else
+        SeriesString = Series + "-";
+    EndIf;
+
+    // Calculate padding needed
+    PaddingLength = TotalLength - StrLen(SeriesString) - StrLen(Prefix);
+
+    If PaddingLength > 0 Then
+        // Create padding zeros
+        PaddingZeros = "";
+        For i = 1 To PaddingLength Do
+            PaddingZeros = PaddingZeros + "0";
+        EndDo;
+
+        // Format: Prefix + Series + Padded number
+        FormattedNumber = Prefix + SeriesString +
+                          Mid(PaddingZeros, 1, PaddingLength - StrLen(NumberString)) +
+                          NumberString;
+    Else
+        // No padding needed, just concatenate
+        FormattedNumber = Prefix + SeriesString + NumberString;
+    EndIf;
+
+    Return FormattedNumber;
+
+EndFunction
