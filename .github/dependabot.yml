@@ -1,0 +1,15 @@
+version: 2
+updates:
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "daily"
+    open-pull-requests-limit: 5
+    assignees:
+      - pxc1984
+    allow:
+      - dependency-name: "*"
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - version-update:semver-major
