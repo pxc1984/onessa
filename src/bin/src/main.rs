@@ -1,14 +1,16 @@
 extern crate core;
 
 use clap::Parser;
-use onessa_logging::init_logging;
 use log::debug;
+use onessa_logging::init_logging;
 
 use crate::cli::{CLIArgs, Command};
 use crate::compile::compile;
 
-mod cli;
-mod compile;
+pub mod cli;
+pub mod compile;
+
+mod opt;
 
 fn main() {
     let cli_args = CLIArgs::parse();

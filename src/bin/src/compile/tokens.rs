@@ -1,12 +1,12 @@
 /// Этот файл содержит лексер для языка и юнит-тесты, подтверждающие корректную работу.
-/// 
+///
 /// =============!!!=============
 /// Если пользуетесь RustRover будьте готовы что большинство операций с этим файлом у вас
 /// будут фризить IDE на 5-10 секунд. Я вас предупредил. Причина кроется в тонне(~4.5G карго кэша)
 /// генерирующегося макросами логоса
 /// =============!!!=============
 ///
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Utc, TimeZone};
 use logos::{Lexer, Logos};
 
 #[derive(Logos, Debug, PartialEq, Clone, PartialOrd)]
@@ -83,7 +83,7 @@ pub enum Token {
     #[regex(r"(?i)иначе|else", priority = 2)]
     Else,
 
-    #[regex(r"(?i)иначеесли|elseif|elsif", priority = 2)]
+    #[regex(r"(?i)иначеесли|elsif|elsif", priority = 2)]
     ElseIf,
 
     #[regex(r"(?i)конецесли|endif", priority = 2)]
@@ -238,7 +238,7 @@ fn parse_number(lex: &mut Lexer<Token>) -> Option<f64> {
 
 fn parse_string(lex: &mut Lexer<Token>) -> String {
     let slice = lex.slice();
-    let slice = &slice[1..slice.len()-1]; // Remove surrounding quotes
+    let slice = &slice[1..slice.len() - 1]; // Remove surrounding quotes
 
     let mut result = String::with_capacity(slice.len());
 
@@ -256,17 +256,15 @@ fn parse_string(lex: &mut Lexer<Token>) -> String {
             '\n' => {
                 result.push(c);
                 linebreak = true;
-            },
-            '\\' => {
-                match chars.next() {
-                    Some('n') => result.push('\n'),
-                    Some('t') => result.push('\t'),
-                    Some('\\') => result.push('\\'),
-                    Some('\"') => result.push('\"'),
-                    Some('\'') => result.push('\''),
-                    _ => {},
-                }
             }
+            '\\' => match chars.next() {
+                Some('n') => result.push('\n'),
+                Some('t') => result.push('\t'),
+                Some('\\') => result.push('\\'),
+                Some('\"') => result.push('\"'),
+                Some('\'') => result.push('\''),
+                _ => {}
+            },
             _ => {
                 result.push(c);
             }
@@ -276,29 +274,26 @@ fn parse_string(lex: &mut Lexer<Token>) -> String {
     result
 }
 
-fn parse_date(lex: &mut Lexer<Token>) -> DateTime<Utc> {
+/// parse_date in format YYYYMMDD or YYYYMMDDHHMMSS
+fn parse_date(lex: &mut Lexer<Token>) -> Option<DateTime<Utc>> {
     let slice = lex.slice();
-    // Remove surrounding quotes
-    let date_str = &slice[1..slice.len()-1];
-
-    // Parse date in format YYYYMMDD or YYYYMMDDHHMMSS
-    use chrono::TimeZone;
+    let date_str = &slice[1..slice.len() - 1];
 
     match date_str.len() {
         8 => {
-            let year = date_str[0..4].parse().unwrap();
-            let month = date_str[4..6].parse().unwrap();
-            let day = date_str[6..8].parse().unwrap();
-            Utc.with_ymd_and_hms(year, month, day, 0, 0, 0).unwrap()
+            let year = date_str[0..4].parse().ok()?;
+            let month = date_str[4..6].parse().ok()?;
+            let day = date_str[6..8].parse().ok()?;
+            Utc.with_ymd_and_hms(year, month, day, 0, 0, 0).single()
         }
         14 => {
-            let year = date_str[0..4].parse().unwrap();
-            let month = date_str[4..6].parse().unwrap();
-            let day = date_str[6..8].parse().unwrap();
-            let hour = date_str[8..10].parse().unwrap();
-            let minute = date_str[10..12].parse().unwrap();
-            let second = date_str[12..14].parse().unwrap();
-            Utc.with_ymd_and_hms(year, month, day, hour, minute, second).unwrap()
+            let year = date_str[0..4].parse().ok()?;
+            let month = date_str[4..6].parse().ok()?;
+            let day = date_str[6..8].parse().ok()?;
+            let hour = date_str[8..10].parse().ok()?;
+            let minute = date_str[10..12].parse().ok()?;
+            let second = date_str[12..14].parse().ok()?;
+            Utc.with_ymd_and_hms(year, month, day, hour, minute, second).single()
         }
         _ => panic!("Invalid date format: {}", date_str),
     }
@@ -310,8 +305,8 @@ fn parse_identifier(lex: &mut Lexer<Token>) -> String {
 
 #[cfg(test)]
 mod tests {
-    use chrono::TimeZone;
     use super::*;
+    use chrono::TimeZone;
     use logos::Logos;
 
     fn assert_tokens(input: &str, expected: &[Token]) {
@@ -325,7 +320,7 @@ mod tests {
     #[test]
     fn test_if_keywords() {
         assert_tokens(
-            "если if тогда then иначеесли elseif elsif иначе else",
+            "если if тогда then иначеесли elsif elsif иначе else",
             &[
                 Token::If,
                 Token::If,
@@ -342,7 +337,7 @@ mod tests {
     #[test]
     fn test_if_keywords_upper() {
         assert_tokens(
-            "ЕСЛИ IF ТОГДА THEN ИНАЧЕЕСЛИ ELSEIF ELSIF ИНАЧЕ ELSE",
+            "ЕСЛИ IF ТОГДА THEN ИНАЧЕЕСЛИ ELSIF ELSIF ИНАЧЕ ELSE",
             &[
                 Token::If,
                 Token::If,
@@ -487,7 +482,7 @@ mod tests {
                 Token::NumberLiteral(12.5f64),
                 Token::StringLiteral("строка".to_string()),
                 Token::StringLiteral("строка\n\t\"ок\"".to_string()),
-                Token::DateLiteral(Utc.with_ymd_and_hms(2024, 01, 01, 0, 0, 0).unwrap()),
+                Token::DateLiteral(Utc.with_ymd_and_hms(2024, 01, 01, 0, 0, 0).unwrap()), // I wrote these test cases so I'm sure
                 Token::DateLiteral(Utc.with_ymd_and_hms(1999, 01, 01, 0, 0, 0).unwrap()),
             ],
         );
@@ -678,9 +673,9 @@ mod tests {
         assert_tokens(
             "\"Это многострочная\n\
             |строка с продолжением\"",
-            &[
-                Token::StringLiteral("Это многострочная\nстрока с продолжением".to_string()),
-            ],
+            &[Token::StringLiteral(
+                "Это многострочная\nстрока с продолжением".to_string(),
+            )],
         );
     }
 }

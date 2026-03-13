@@ -40,14 +40,14 @@ Function CalculateEmployeeBonus(EmployeeRef, CalculationPeriod, QualificationLev
     BaseAmount = QueryResult.BaseSalary;
 
     // Calculate years of experience
-    ExperienceYears = Floor((CurrentDate() - QueryResult.HireDate) / 365.25);
+    ExperienceYears = Floor((ТекущаяДатаСеанса() - QueryResult.HireDate) / 365.25);
 
     // Determine bonus percentage based on qualification level
     If QualificationLevel = "High" Then
         BonusPercentage = 30;
-    ElseIf QualificationLevel = "Standard" Then
+    ElsIf QualificationLevel = "Standard" Then
         BonusPercentage = 20;
-    ElseIf QualificationLevel = "Entry" Then
+    ElsIf QualificationLevel = "Entry" Then
         BonusPercentage = 10;
     Else
         BonusPercentage = 15; // Default percentage
@@ -56,7 +56,8 @@ Function CalculateEmployeeBonus(EmployeeRef, CalculationPeriod, QualificationLev
     // Adjust bonus based on experience
     If ExperienceYears > 5 Then
         BonusPercentage = BonusPercentage + 5;
-    ElseIf ExperienceYears < 1 Then
+    EndIf;
+    If ExperienceYears < 1 Then
         BonusPercentage = BonusPercentage - 5;
     EndIf;
 
@@ -66,12 +67,14 @@ Function CalculateEmployeeBonus(EmployeeRef, CalculationPeriod, QualificationLev
     // Get performance score from rating
     If QueryResult.Rating = "Excellent" Then
         PerformanceScore = 1.5;
-    ElseIf QueryResult.Rating = "Good" Then
+    ElsIf QueryResult.Rating = "Good" Then
         PerformanceScore = 1.2;
-    ElseIf QueryResult.Rating = "Satisfactory" Then
+    ElsIf QueryResult.Rating = "Satisfactory" Then
         PerformanceScore = 1.0;
-    ElseIf QueryResult.Rating = "Poor" Then
+    ElsIf QueryResult.Rating = "Poor" Then
         PerformanceScore = 0.5;
+    Else
+        PerformanceScore = 1.0;
     EndIf;
 
     // Calculate total bonus
@@ -118,10 +121,7 @@ Function FormatDocumentNumber(DocumentNumber, Series, Prefix = "DOC-", TotalLeng
 
     If PaddingLength > 0 Then
         // Create padding zeros
-        PaddingZeros = "";
-        For i = 1 To PaddingLength Do
-            PaddingZeros = PaddingZeros + "0";
-        EndDo;
+        PaddingZeros = StringRepeat("0", PaddingLength);
 
         // Format: Prefix + Series + Padded number
         FormattedNumber = Prefix + SeriesString +

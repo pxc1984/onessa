@@ -1,4 +1,6 @@
+use log::error;
 use rowan::{GreenNode, GreenNodeBuilder};
+use std::process::exit;
 
 use crate::compile::tokens::Token;
 
@@ -27,6 +29,9 @@ pub enum SyntaxKind {
     UnaryExpression,
     Literal,
     Identifier,
+    CallExpression,
+    MemberExpression,
+    NewExpression,
 
     // Tokens
     LineComment,
@@ -153,8 +158,16 @@ pub struct Parser {
 }
 
 impl Parser {
-    pub fn errors(&self) -> &[String] {
-        &self.errors
+    pub fn consume_errors(self) {
+        if self.errors.is_empty() {
+            return;
+        }
+
+        for err in self.errors {
+            error!("{}", err);
+        }
+
+        exit(1);
     }
 
     pub fn syntax(&self) -> rowan::SyntaxNode<Lang> {
@@ -248,6 +261,7 @@ fn token_kind(token: &Token) -> SyntaxKind {
 struct ParseSession<'a> {
     builder: GreenNodeBuilder<'static>,
     lexer: &'a mut logos::Lexer<'a, Token>,
+    source: &'a str,
     current: Option<Token>,
     current_text: String,
     errors: Vec<String>,
@@ -257,6 +271,7 @@ impl<'a> ParseSession<'a> {
     fn new(lexer: &'a mut logos::Lexer<'a, Token>) -> Self {
         let mut session = ParseSession {
             builder: GreenNodeBuilder::new(),
+            source: lexer.source(),
             lexer,
             current: None,
             current_text: String::new(),
@@ -264,6 +279,27 @@ impl<'a> ParseSession<'a> {
         };
         session.bump();
         session
+    }
+
+    fn position(&self) -> (usize, usize) {
+        let span = self.lexer.span();
+        let idx = span.start.min(self.source.len());
+        let mut line = 1;
+        let mut col = 1;
+        for ch in self.source[..idx].chars() {
+            if ch == '\n' {
+                line += 1;
+                col = 1;
+            } else {
+                col += 1;
+            }
+        }
+        (line, col)
+    }
+
+    fn error_at_current(&mut self, message: String) {
+        let (line, col) = self.position();
+        self.errors.push(format!("{} at {}:{}", message, line, col));
     }
 
     fn bump(&mut self) {
@@ -274,7 +310,7 @@ impl<'a> ParseSession<'a> {
             }
             Some(Err(err)) => {
                 self.current_text = self.lexer.slice().to_string();
-                self.errors.push(format!("Lexer error: {err:?}"));
+                self.error_at_current(format!("Lexer error: {err:?}"));
                 self.current = None;
             }
             None => {
@@ -310,11 +346,10 @@ impl<'a> ParseSession<'a> {
         if self.peek_is(expected) {
             self.token_current();
         } else {
-            self.errors.push(format!(
+            self.error_at_current(format!(
                 "Expected token {:?}, got {:?}",
                 expected, self.current
             ));
-            // Consume something to avoid infinite loops when parser gets out of sync.
             self.token_current();
         }
     }
@@ -323,8 +358,8 @@ impl<'a> ParseSession<'a> {
         self.builder.start_node(SyntaxKind::Root.into());
         self.builder.start_node(SyntaxKind::SourceFile.into());
         self.parse_statement_list();
-        self.builder.finish_node(); // SourceFile
-        self.builder.finish_node(); // Root
+        self.builder.finish_node();
+        self.builder.finish_node();
     }
 
     fn parse_statement_list(&mut self) {
@@ -341,7 +376,7 @@ impl<'a> ParseSession<'a> {
         } else if self.peek_is(&Token::While) {
             self.parse_while();
         } else if self.peek_is(&Token::For) {
-            self.parse_for_each();
+            self.parse_for();
         } else if self.peek_is(&Token::Try) {
             self.parse_try();
         } else if self.peek_is(&Token::Procedure) {
@@ -356,6 +391,9 @@ impl<'a> ParseSession<'a> {
             self.parse_break();
         } else if self.peek_is(&Token::Continue) {
             self.parse_continue();
+        } else if self.peek_is(&Token::Semicolon) {
+            // Empty statement/statement separator
+            self.token_current();
         } else {
             self.parse_expression_statement();
         }
@@ -404,16 +442,51 @@ impl<'a> ParseSession<'a> {
         self.builder.finish_node();
     }
 
-    fn parse_for_each(&mut self) {
+    fn parse_for(&mut self) {
         self.builder.start_node(SyntaxKind::ForEachStatement.into());
         self.expect_token(&Token::For);
-        self.expect_token(&Token::Each);
-        self.parse_expression();
-        self.expect_token(&Token::In);
-        self.parse_expression();
+
+        if self.peek_is(&Token::Each) {
+            self.expect_token(&Token::Each);
+            self.parse_expression();
+            self.expect_token(&Token::In);
+            self.parse_expression();
+        } else {
+            // Loop variable
+            if let Some(Token::Identifier(_)) = self.current.clone() {
+                self.parse_identifier();
+            } else {
+                self.error_at_current(format!(
+                    "Expected loop variable after For, got {:?}",
+                    self.current
+                ));
+            }
+
+            if self.peek_is(&Token::Eq) {
+                self.token_current();
+                self.parse_expression();
+            }
+
+            if let Some(Token::Identifier(_)) = self.current.clone() {
+                if self.current_text.eq_ignore_ascii_case("to") {
+                    self.token_current();
+                } else {
+                    self.error_at_current(format!(
+                        "Expected 'To' in for-loop, got {:?}",
+                        self.current
+                    ));
+                }
+            } else {
+                self.error_at_current(format!("Expected 'To' in for-loop, got {:?}", self.current));
+            }
+
+            self.parse_expression();
+        }
+
         if self.peek_is(&Token::Do) {
             self.expect_token(&Token::Do);
         }
+
         self.parse_block(&[&Token::EndDo]);
         self.expect_token(&Token::EndDo);
         self.builder.finish_node();
@@ -434,7 +507,8 @@ impl<'a> ParseSession<'a> {
     }
 
     fn parse_procedure(&mut self) {
-        self.builder.start_node(SyntaxKind::ProcedureDeclaration.into());
+        self.builder
+            .start_node(SyntaxKind::ProcedureDeclaration.into());
         self.expect_token(&Token::Procedure);
         if let Some(Token::Identifier(_)) = self.current.clone() {
             self.parse_identifier();
@@ -454,7 +528,6 @@ impl<'a> ParseSession<'a> {
                     self.parse_identifier();
                     progressed = true;
 
-                    // Optional default value assignment for parameters
                     if self.peek_is(&Token::Eq) {
                         self.token_current();
                         self.parse_expression();
@@ -467,7 +540,7 @@ impl<'a> ParseSession<'a> {
                 }
 
                 if !progressed {
-                    self.errors.push(format!(
+                    self.error_at_current(format!(
                         "Unexpected token in parameter list: {:?}",
                         self.current
                     ));
@@ -487,7 +560,8 @@ impl<'a> ParseSession<'a> {
     }
 
     fn parse_function(&mut self) {
-        self.builder.start_node(SyntaxKind::FunctionDeclaration.into());
+        self.builder
+            .start_node(SyntaxKind::FunctionDeclaration.into());
         self.expect_token(&Token::Function);
         if let Some(Token::Identifier(_)) = self.current.clone() {
             self.parse_identifier();
@@ -507,7 +581,6 @@ impl<'a> ParseSession<'a> {
                     self.parse_identifier();
                     progressed = true;
 
-                    // Optional default value assignment for parameters
                     if self.peek_is(&Token::Eq) {
                         self.token_current();
                         self.parse_expression();
@@ -520,7 +593,7 @@ impl<'a> ParseSession<'a> {
                 }
 
                 if !progressed {
-                    self.errors.push(format!(
+                    self.error_at_current(format!(
                         "Unexpected token in parameter list: {:?}",
                         self.current
                     ));
@@ -540,15 +613,32 @@ impl<'a> ParseSession<'a> {
     }
 
     fn parse_var_decl(&mut self) {
-        self.builder.start_node(SyntaxKind::VariableDeclaration.into());
+        self.builder
+            .start_node(SyntaxKind::VariableDeclaration.into());
         self.expect_token(&Token::Var);
-        if let Some(Token::Identifier(_)) = self.current.clone() {
-            self.parse_identifier();
+
+        loop {
+            if let Some(Token::Identifier(_)) = self.current.clone() {
+                self.parse_identifier();
+                if self.peek_is(&Token::Eq) {
+                    self.token_current();
+                    self.parse_expression();
+                }
+            } else {
+                self.error_at_current(format!(
+                    "Expected identifier in variable declaration, got {:?}",
+                    self.current
+                ));
+                self.token_current();
+            }
+
+            if self.peek_is(&Token::Comma) {
+                self.token_current();
+                continue;
+            }
+            break;
         }
-        if self.peek_is(&Token::Eq) {
-            self.token_current();
-            self.parse_expression();
-        }
+
         if self.peek_is(&Token::Semicolon) {
             self.token_current();
         }
@@ -577,7 +667,8 @@ impl<'a> ParseSession<'a> {
     }
 
     fn parse_continue(&mut self) {
-        self.builder.start_node(SyntaxKind::ContinueStatement.into());
+        self.builder
+            .start_node(SyntaxKind::ContinueStatement.into());
         self.expect_token(&Token::Continue);
         if self.peek_is(&Token::Semicolon) {
             self.token_current();
@@ -586,7 +677,8 @@ impl<'a> ParseSession<'a> {
     }
 
     fn parse_expression_statement(&mut self) {
-        self.builder.start_node(SyntaxKind::ExpressionStatement.into());
+        self.builder
+            .start_node(SyntaxKind::ExpressionStatement.into());
         self.parse_expression();
         if self.peek_is(&Token::Semicolon) {
             self.token_current();
@@ -610,7 +702,8 @@ impl<'a> ParseSession<'a> {
                     break;
                 }
 
-                self.builder.start_node_at(checkpoint, SyntaxKind::BinaryExpression.into());
+                self.builder
+                    .start_node_at(checkpoint, SyntaxKind::BinaryExpression.into());
                 self.token_current();
                 self.parse_binary_expression(r_bp);
                 self.builder.finish_node();
@@ -622,20 +715,79 @@ impl<'a> ParseSession<'a> {
     }
 
     fn parse_unary(&mut self) {
-        if self.peek_is(&Token::Not) || self.peek_is(&Token::Minus) {
+        if self.peek_is(&Token::Not) || self.peek_is(&Token::Minus) || self.peek_is(&Token::New) {
             let checkpoint = self.builder.checkpoint();
-            self.builder.start_node_at(checkpoint, SyntaxKind::UnaryExpression.into());
+            let kind = if self.peek_is(&Token::New) {
+                SyntaxKind::NewExpression
+            } else {
+                SyntaxKind::UnaryExpression
+            };
+            self.builder.start_node_at(checkpoint, kind.into());
             self.token_current();
             self.parse_unary();
             self.builder.finish_node();
             return;
         }
+        self.parse_postfix();
+    }
+
+    fn parse_postfix(&mut self) {
+        let checkpoint = self.builder.checkpoint();
         self.parse_primary();
+
+        loop {
+            if self.peek_is(&Token::LParen) {
+                self.builder
+                    .start_node_at(checkpoint, SyntaxKind::CallExpression.into());
+                self.token_current();
+
+                if !self.peek_is(&Token::RParen) {
+                    self.parse_expression();
+                    while self.peek_is(&Token::Comma) {
+                        self.token_current();
+                        self.parse_expression();
+                    }
+                }
+
+                self.expect_token(&Token::RParen);
+                self.builder.finish_node();
+                continue;
+            }
+
+            if self.peek_is(&Token::Period) {
+                self.builder
+                    .start_node_at(checkpoint, SyntaxKind::MemberExpression.into());
+                self.token_current();
+                if self.is_identifier_like() {
+                    self.parse_identifier();
+                } else {
+                    self.error_at_current(format!(
+                        "Expected member name after '.', got {:?}",
+                        self.current
+                    ));
+                }
+                self.builder.finish_node();
+                continue;
+            }
+
+            break;
+        }
+    }
+
+    fn is_identifier_like(&self) -> bool {
+        matches!(
+            self.current,
+            Some(Token::Identifier(_))
+                | Some(Token::Select)
+                | Some(Token::New)
+                | Some(Token::StringLiteral(_))
+                | Some(Token::NumberLiteral(_))
+        )
     }
 
     fn parse_primary(&mut self) {
         match &self.current {
-            Some(Token::Identifier(_)) => self.parse_identifier(),
+            Some(Token::Identifier(_)) | Some(Token::Select) => self.parse_identifier(),
             Some(Token::NumberLiteral(_))
             | Some(Token::StringLiteral(_))
             | Some(Token::DateLiteral(_))
@@ -649,7 +801,7 @@ impl<'a> ParseSession<'a> {
                 self.expect_token(&Token::RParen);
             }
             Some(token) => {
-                self.errors.push(format!("Unexpected token in expression: {:?}", token));
+                self.error_at_current(format!("Unexpected token in expression: {:?}", token));
                 self.token_current();
             }
             None => {}
