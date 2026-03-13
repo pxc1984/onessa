@@ -1,9 +1,17 @@
 /// Этот файл содержит лексер для языка и юнит-тесты, подтверждающие корректную работу.
+/// 
+/// =============!!!=============
+/// Если пользуетесь RustRover будьте готовы что большинство операций с этим файлом у вас
+/// будут фризить IDE на 5-10 секунд. Я вас предупредил. Причина кроется в тонне(~4.5G карго кэша)
+/// генерирующегося макросами логоса
+/// =============!!!=============
+///
 use chrono::{DateTime, Utc};
 use logos::{Lexer, Logos};
 
-#[derive(Logos, Debug, PartialEq, Clone)]
+#[derive(Logos, Debug, PartialEq, Clone, PartialOrd)]
 #[logos(skip(r"[ \t\n\f]+"))]
+#[repr(u16)]
 pub enum Token {
     #[regex(r"//[^\n]*", allow_greedy=true, callback=logos::skip)]
     LineComment,
