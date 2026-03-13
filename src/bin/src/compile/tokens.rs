@@ -230,32 +230,38 @@ fn parse_number(lex: &mut Lexer<Token>) -> Option<f64> {
 
 fn parse_string(lex: &mut Lexer<Token>) -> String {
     let slice = lex.slice();
-    // Remove surrounding quotes
-    let mut result = String::new();
-    let chars = slice[1..slice.len()-1].chars().peekable();
+    let slice = &slice[1..slice.len()-1]; // Remove surrounding quotes
 
-    let mut escape = false;
+    let mut result = String::with_capacity(slice.len());
+
     let mut linebreak = false;
-    for c in chars {
-        if linebreak && c == '|' {
-            linebreak = false;
-        } else if escape {
-            match c {
-                'n' => result.push('\n'),
-                't' => result.push('\t'),
-                'r' => result.push('\r'),
-                '"' => result.push('"'),
-                '\\' => result.push('\\'),
-                _ => result.push(c),
+    let mut chars = slice.chars().peekable();
+    while let Some(c) = chars.next() {
+        if linebreak {
+            if c == '|' {
+                linebreak = false;
             }
-            escape = false;
-        } else if c == '\n' {
-            result.push('\n');
-            linebreak = true;
-        } else if c == '\\' {
-            escape = true;
-        } else {
-            result.push(c);
+            continue;
+        }
+
+        match c {
+            '\n' => {
+                result.push(c);
+                linebreak = true;
+            },
+            '\\' => {
+                match chars.next() {
+                    Some('n') => result.push('\n'),
+                    Some('t') => result.push('\t'),
+                    Some('\\') => result.push('\\'),
+                    Some('\"') => result.push('\"'),
+                    Some('\'') => result.push('\''),
+                    _ => {},
+                }
+            }
+            _ => {
+                result.push(c);
+            }
         }
     }
 
@@ -655,6 +661,17 @@ mod tests {
                 Token::Undefined,
                 Token::Semicolon,
                 Token::EndTry,
+            ],
+        );
+    }
+
+    #[test]
+    fn test_multiline_string_with_continuation() {
+        assert_tokens(
+            "\"Это многострочная\n\
+            |строка с продолжением\"",
+            &[
+                Token::StringLiteral("Это многострочная\nстрока с продолжением".to_string()),
             ],
         );
     }

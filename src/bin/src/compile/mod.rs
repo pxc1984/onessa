@@ -27,7 +27,7 @@ use logos::Lexer;
 #[cfg(feature = "lexer_dump")]
 fn lexer_dump(lexer: &Lexer<Token>) {
     use log::{debug, error, info};
-    let mut lexer = lexer.clone();
+    let lexer = lexer.clone();
 
     info!("Starting debug lexer token dumping");
     for token in lexer {
