@@ -1,13 +1,12 @@
 name: CI
 
 on:
-  push:
-    branches: [master]
+  workflow_dispatch:
 
 jobs:
   format:
     name: Fix + Format
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
@@ -51,6 +50,7 @@ jobs:
           toolchain: stable
           profile: minimal
           override: true
+          components: rustfmt
 
       - name: Run cargo fix + fmt
         run: |
@@ -68,7 +68,7 @@ jobs:
   test:
     name: Run tests
     needs: format
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
