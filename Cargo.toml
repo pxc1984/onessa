@@ -13,7 +13,9 @@ resolver = "2"
 members = [
     "src/app/src-tauri",
     "src/bin",
+    "src/lib/ast",
     "src/lib/core",
+    "src/lib/lexer",
     "src/lib/utils",
     "src/lib/utils/logging",
     "src/tests",
@@ -79,6 +81,8 @@ debug = true
 #=============== Dependencies ==============#
 [workspace.dependencies]
 # Members
+onessa-ast = { path = "src/lib/ast" }
+onessa-lexer = { path = "src/lib/lexer" }
 onessa-core = { path = "src/lib/core"}
 onessa-utils = { path = "src/lib/utils"}
 onessa-logging = { path = "src/lib/utils/logging"}
@@ -181,3 +185,7 @@ criterion = { version = "0.7.0", features = ["html_reports"] }
 # Stats
 sysinfo = { version = "0.37.2", default-features = false, features = ["system"] }
 dir-size = "0.1.1"
+
+logos = "0.16.1"
+rowan = "0.16.1"
+chrono = "0.4.44"

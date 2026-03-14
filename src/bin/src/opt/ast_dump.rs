@@ -1,10 +1,9 @@
-use crate::compile::ast;
+use log::{debug, info};
 use rowan::{NodeOrToken, SyntaxNode};
+use onessa_ast::Lang;
 
-pub fn ast_dump(root: &SyntaxNode<ast::Lang>) {
-    use log::{debug, info};
-
-    fn dump(node: &SyntaxNode<ast::Lang>, indent: usize) {
+pub fn ast_dump(root: &SyntaxNode<Lang>) {
+    fn dump(node: &SyntaxNode<Lang>, indent: usize) {
         let prefix = " ".repeat(indent);
         debug!("{}Node: {:?}", prefix, node.kind());
 

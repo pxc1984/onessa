@@ -1,10 +1,10 @@
 use crate::compile::ast::{Lang, Parser};
 use crate::compile::tokens::Token;
+use log::{debug, error, info};
 use logos::Lexer;
 use rowan::SyntaxNode;
 
 pub fn lexer_dump(lexer: &Lexer<Token>) {
-    use log::{debug, error, info};
     let lexer = lexer.clone();
 
     info!("Starting debug lexer token dumping");

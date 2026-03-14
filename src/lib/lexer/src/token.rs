@@ -1,11 +1,3 @@
-/// Этот файл содержит лексер для языка и юнит-тесты, подтверждающие корректную работу.
-///
-/// =============!!!=============
-/// Если пользуетесь RustRover будьте готовы что большинство операций с этим файлом у вас
-/// будут фризить IDE на 5-10 секунд. Я вас предупредил. Причина кроется в тонне(~4.5G карго кэша)
-/// генерирующегося макросами логоса
-/// =============!!!=============
-///
 use chrono::{DateTime, TimeZone, Utc};
 use logos::{Lexer, Logos};
 
@@ -306,8 +298,8 @@ fn parse_identifier(lex: &mut Lexer<Token>) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use chrono::TimeZone;
+    use crate::token::Token;
+    use chrono::{TimeZone, Utc};
     use logos::Logos;
 
     fn assert_tokens(input: &str, expected: &[Token]) {
