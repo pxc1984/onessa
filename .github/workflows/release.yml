@@ -54,7 +54,6 @@ jobs:
         uses: actions-rs/toolchain@v1
         with:
           toolchain: stable
-          profile: minimal
           override: true
 
       - name: Add target (if needed)
@@ -64,7 +63,7 @@ jobs:
       - name: Build release (static)
         run: |
           rustup target add ${{ matrix.target }}
-          cargo build --profile production --target ${{ matrix.target }}
+          cargo build --profile production --target ${{ matrix.target }} --bin onessa
 
       - name: Collect release binary
         run: |
