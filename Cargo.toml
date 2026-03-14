@@ -11,6 +11,7 @@ resolver = "2"
 
 #================= Members =================#
 members = [
+    "src/app/src-tauri",
     "src/bin",
     "src/lib/core",
     "src/lib/utils",
