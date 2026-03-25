@@ -2543,6 +2543,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "onessa-cfg"
+version = "0.1.0"
+dependencies = [
+ "onessa-ast",
+ "rowan",
+]
+
+[[package]]
 name = "onessa-core"
 version = "0.1.0"
 dependencies = [

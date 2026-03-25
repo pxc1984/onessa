@@ -1,0 +1,11 @@
+[package]
+name = "onessa-cfg"
+edition.workspace = true
+version.workspace = true
+
+[dependencies]
+onessa-ast.workspace = true
+rowan.workspace = true
+
+[lints]
+workspace = true
