@@ -18,6 +18,17 @@ pub struct CLIArgs {
 #[derive(Subcommand, Clone, Debug)]
 pub enum Command {
     Compile(CompileArgs),
+    Run(RunArgs),
+}
+
+#[derive(Debug, Clone, Parser)]
+pub struct RunArgs {
+    // path to bytecode file
+    pub input: PathBuf,
+
+    // TODO: add ability to pass cli arguments to the command by placing -- after onessa run
+    //      example: onessa run -- --help
+    //                             ------ arguments for a program
 }
 
 #[derive(Debug, Clone, Parser)]
