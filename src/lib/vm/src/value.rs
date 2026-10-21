@@ -70,7 +70,19 @@ impl Value {
     /// A number in its canonical representation: `Int` whenever the value is an integer that
     /// fits.
     pub fn number(n: Decimal) -> Self {
-        if n.fract().is_zero() {
+        if n.scale() == 0 || n.fract().is_zero() {
+            if let Ok(i) = i64::try_from(n) {
+                return Value::Int(i);
+            }
+        }
+        Value::Number(n)
+    }
+
+    /// Like [`Value::number`], but only integers written without a fractional part become
+    /// `Int`: `2.0` stays a `Number`. Cheap enough for the results of arithmetic.
+    #[inline]
+    pub fn number_result(n: Decimal) -> Self {
+        if n.scale() == 0 {
             if let Ok(i) = i64::try_from(n) {
                 return Value::Int(i);
             }

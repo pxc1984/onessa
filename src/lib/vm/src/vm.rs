@@ -424,17 +424,35 @@ fn arith(op: Arith, lhs: &Value, rhs: &Value) -> Result<Value, String> {
             Arith::Mul => a.checked_mul(*b),
             // `None` for a zero divisor, which `rem` then reports.
             Arith::Mod => a.checked_rem(*b),
-            Arith::Div => None,
+            Arith::Div => match a.checked_rem(*b) {
+                Some(0) => a.checked_div(*b),
+                _ => None,
+            },
         };
         if let Some(n) = result {
             return Ok(Value::Int(n));
         }
     }
-    arith_slow(op, lhs.clone(), rhs.clone())
+    arith_slow(op, lhs, rhs)
 }
 
 #[inline(never)]
-fn arith_slow(op: Arith, lhs: Value, rhs: Value) -> Result<Value, String> {
+fn arith_slow(op: Arith, lhs: &Value, rhs: &Value) -> Result<Value, String> {
+    let decimal = |v: &Value| match v {
+        Value::Int(n) => Some(Decimal::from(*n)),
+        Value::Number(n) => Some(*n),
+        _ => None,
+    };
+    if let (Some(a), Some(b)) = (decimal(lhs), decimal(rhs)) {
+        return Ok(match op {
+            Arith::Add => number(a.checked_add(b))?,
+            Arith::Sub => number(a.checked_sub(b))?,
+            Arith::Mul => number(a.checked_mul(b))?,
+            Arith::Div => divide(a, b, false)?,
+            Arith::Mod => divide(a, b, true)?,
+        });
+    }
+    let (lhs, rhs) = (lhs.clone(), rhs.clone());
     match op {
         Arith::Add => add(lhs, rhs),
         Arith::Sub => sub(lhs, rhs),
@@ -463,7 +481,7 @@ fn compare(op: Cmp, lhs: &Value, rhs: &Value) -> Result<bool, String> {
 }
 
 fn number(result: Option<Decimal>) -> Result<Value, &'static str> {
-    result.map(Value::number).ok_or(OVERFLOW)
+    result.map(Value::number_result).ok_or(OVERFLOW)
 }
 
 fn divide(lhs: Decimal, rhs: Decimal, remainder: bool) -> Result<Value, &'static str> {
