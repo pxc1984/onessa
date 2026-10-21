@@ -38,12 +38,13 @@ impl FunctionBuilder<'_> {
             SyntaxKind::CallExpression => self.lower_call(node, true),
             SyntaxKind::MemberExpression => self
                 .ctx
-                .error(node, "Object properties and methods are not supported yet"),
-            SyntaxKind::IndexExpression => self.ctx.error(node, "Indexing is not supported yet"),
-            SyntaxKind::NewExpression => self.ctx.error(
-                node,
-                "'Новый' is not supported yet: objects are not implemented",
-            ),
+                .error(node, "Object properties are not supported yet"),
+            SyntaxKind::IndexExpression => {
+                if self.lower_index_operands(node) {
+                    self.emit(Instruction::IndexGet, line);
+                }
+            }
+            SyntaxKind::NewExpression => self.lower_new(node, line),
             kind => self
                 .ctx
                 .error(node, format!("Unexpected expression {kind:?}")),
@@ -158,6 +159,66 @@ impl FunctionBuilder<'_> {
         self.switch_to(end);
     }
 
+    /// Pushes the collection and the index of `collection[index]`. Returns `false` if the
+    /// node is incomplete.
+    pub fn lower_index_operands(&mut self, node: &SyntaxNode<Lang>) -> bool {
+        let mut children = child_nodes(node);
+        let (Some(collection), Some(index)) = (children.next(), children.next()) else {
+            return false;
+        };
+        self.lower_expression(&collection);
+        self.lower_expression(&index);
+        true
+    }
+
+    /// `Новый Тип` or `Новый Тип(аргументы)`.
+    fn lower_new(&mut self, node: &SyntaxNode<Lang>, line: u32) {
+        let Some(target) = child_nodes(node).next() else {
+            return;
+        };
+        let (type_node, args) = match target.kind() {
+            SyntaxKind::Identifier => (target, Vec::new()),
+            SyntaxKind::CallExpression => {
+                let mut children = child_nodes(&target);
+                let Some(callee) = children.next() else {
+                    return;
+                };
+                (callee, call_arguments(children))
+            }
+            _ => (target, Vec::new()),
+        };
+        if type_node.kind() != SyntaxKind::Identifier {
+            self.ctx
+                .error(&type_node, "Expected a type name after 'Новый'");
+            return;
+        }
+        let Some(argc) = self.lower_arguments(node, &args, line) else {
+            return;
+        };
+        let type_name = self.ctx.strings.push(&identifier_text(&type_node));
+        self.emit(Instruction::New { type_name, argc }, line);
+    }
+
+    /// Pushes the arguments, skipped ones as `Неопределено`. Returns their count.
+    fn lower_arguments(
+        &mut self,
+        node: &SyntaxNode<Lang>,
+        args: &[Option<SyntaxNode<Lang>>],
+        line: u32,
+    ) -> Option<u8> {
+        let Ok(argc) = u8::try_from(args.len()) else {
+            self.ctx.error(node, "Too many actual parameters");
+            return None;
+        };
+        for arg in args {
+            match arg {
+                Some(arg) => self.lower_expression(arg),
+                None => self.emit(Instruction::PushC(Constant::Undefined), line),
+            }
+        }
+        Some(argc)
+    }
+
     /// Lowers a call. With `want_value` the result is left on the stack, otherwise it is
     /// discarded.
     pub fn lower_call(&mut self, node: &SyntaxNode<Lang>, want_value: bool) {
@@ -166,16 +227,17 @@ impl FunctionBuilder<'_> {
         let Some(callee) = children.next() else {
             return;
         };
+        let args = call_arguments(children);
+        if callee.kind() == SyntaxKind::MemberExpression {
+            self.lower_method_call_on_object(node, &callee, &args, want_value, line);
+            return;
+        }
         if callee.kind() != SyntaxKind::Identifier {
             self.ctx
-                .error(&callee, "Object methods are not supported yet");
+                .error(&callee, "Expected a procedure or function name");
             return;
         }
         let name = identifier_text(&callee);
-        // Each argument is an `Expression` node, empty if the argument was skipped.
-        let args: Vec<Option<SyntaxNode<Lang>>> = children
-            .map(|arg| child_nodes(&arg).next().map(|_| arg))
-            .collect();
 
         if let Some(&index) = self.ctx.signature_map.get(&name.to_lowercase()) {
             self.lower_method_call(node, index, &name, &args, want_value, line);
@@ -186,6 +248,31 @@ impl FunctionBuilder<'_> {
                 &callee,
                 format!("Procedure or function is not defined ({name})"),
             );
+        }
+    }
+
+    /// `Объект.Метод(аргументы)`: the method is looked up at run time, so procedures and
+    /// functions cannot be told apart here.
+    fn lower_method_call_on_object(
+        &mut self,
+        node: &SyntaxNode<Lang>,
+        callee: &SyntaxNode<Lang>,
+        args: &[Option<SyntaxNode<Lang>>],
+        want_value: bool,
+        line: u32,
+    ) {
+        let mut parts = child_nodes(callee);
+        let (Some(object), Some(method)) = (parts.next(), parts.next()) else {
+            return;
+        };
+        self.lower_expression(&object);
+        let Some(argc) = self.lower_arguments(node, args, line) else {
+            return;
+        };
+        let name = self.ctx.strings.push(&identifier_text(&method));
+        self.emit(Instruction::CallMethod { name, argc }, line);
+        if !want_value {
+            self.emit(Instruction::Pop, line);
         }
     }
 
@@ -302,24 +389,22 @@ impl FunctionBuilder<'_> {
             return;
         }
 
-        for arg in args {
-            match arg {
-                Some(arg) => self.lower_expression(arg),
-                None => self.emit(Instruction::PushC(Constant::Undefined), line),
-            }
-        }
+        let Some(argc) = self.lower_arguments(node, args, line) else {
+            return;
+        };
         let name = self.ctx.strings.push(builtin.name);
-        self.emit(
-            Instruction::CallNative {
-                name,
-                argc: args.len() as u8,
-            },
-            line,
-        );
+        self.emit(Instruction::CallNative { name, argc }, line);
         if !want_value {
             self.emit(Instruction::Pop, line);
         }
     }
+}
+
+/// Argument nodes of a call; each is an `Expression`, `None` if the argument was skipped.
+fn call_arguments(nodes: impl Iterator<Item = SyntaxNode<Lang>>) -> Vec<Option<SyntaxNode<Lang>>> {
+    nodes
+        .map(|arg| child_nodes(&arg).next().map(|_| arg))
+        .collect()
 }
 
 fn is_operator(kind: SyntaxKind) -> bool {

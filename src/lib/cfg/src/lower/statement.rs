@@ -44,19 +44,29 @@ impl FunctionBuilder<'_> {
         let (Some(target), Some(value)) = (children.next(), children.next()) else {
             return;
         };
-        if target.kind() != SyntaxKind::Identifier {
-            self.ctx.error(
-                &target,
-                "Only variables can be assigned to: object properties and indexing are not supported yet",
-            );
-            return;
+        let line = self.ctx.line(node);
+        match target.kind() {
+            SyntaxKind::Identifier => {}
+            SyntaxKind::IndexExpression => {
+                if self.lower_index_operands(&target) {
+                    self.lower_expression(&value);
+                    self.emit(Instruction::IndexSet, line);
+                }
+                return;
+            }
+            _ => {
+                self.ctx.error(
+                    &target,
+                    "Only variables and indexed elements can be assigned to: object properties are not supported yet",
+                );
+                return;
+            }
         }
 
         self.lower_expression(&value);
         // The target is declared after the value is computed, so `А = А + 1` with an
         // undefined `А` is still reported.
         if let Some(slot) = self.resolve_or_declare(&target) {
-            let line = self.ctx.line(node);
             self.emit_store(slot, line);
         }
     }

@@ -247,8 +247,39 @@ fn semantic_errors() {
         ["Expected a procedure call or an assignment at 1:1"]
     );
     assert_eq!(
-        errors("А = Новый Массив;"),
-        ["'Новый' is not supported yet: objects are not implemented at 1:5"]
+        errors("А = Новый Массив;\nА.Б = 1;\nСообщить(А.Б);"),
+        [
+            "Only variables and indexed elements can be assigned to: object properties are not supported yet at 2:1",
+            "Object properties are not supported yet at 3:10"
+        ]
+    );
+}
+
+#[test]
+fn objects_indexing_and_methods() {
+    assert_eq!(
+        dump("М = Новый Массив(2);\nМ[0] = М.Количество();\nМ.Добавить(М[1]);"),
+        "\
+fn#0 (entry) <module>()
+  locals: [М]
+  b0:
+    PUSH_C 2
+    NEW str#0 1
+    POP_V 0
+    PUSH_V 0
+    PUSH_C 0
+    PUSH_V 0
+    CALL_METHOD str#1 0
+    INDEX_SET
+    PUSH_V 0
+    PUSH_V 0
+    PUSH_C 1
+    INDEX_GET
+    CALL_METHOD str#2 1
+    POP
+    PUSH_C undefined
+    return
+"
     );
 }
 
