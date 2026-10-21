@@ -566,7 +566,7 @@ checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
 
 [[package]]
 name = "onessa"
-version = "0.1.0"
+version = "0.2.3"
 dependencies = [
  "chrono",
  "clap",
@@ -585,7 +585,7 @@ dependencies = [
 
 [[package]]
 name = "onessa-ast"
-version = "0.1.0"
+version = "0.2.3"
 dependencies = [
  "log",
  "logos",
@@ -595,7 +595,7 @@ dependencies = [
 
 [[package]]
 name = "onessa-cfg"
-version = "0.1.0"
+version = "0.2.3"
 dependencies = [
  "logos",
  "onessa-ast",
@@ -607,7 +607,7 @@ dependencies = [
 
 [[package]]
 name = "onessa-codegen"
-version = "0.1.0"
+version = "0.2.3"
 dependencies = [
  "logos",
  "onessa-ast",
@@ -618,7 +618,7 @@ dependencies = [
 
 [[package]]
 name = "onessa-core"
-version = "0.1.0"
+version = "0.2.3"
 dependencies = [
  "ahash",
  "byteorder",
@@ -629,7 +629,7 @@ dependencies = [
 
 [[package]]
 name = "onessa-lexer"
-version = "0.1.0"
+version = "0.2.3"
 dependencies = [
  "chrono",
  "logos",
@@ -638,7 +638,7 @@ dependencies = [
 
 [[package]]
 name = "onessa-logging"
-version = "0.1.0"
+version = "0.2.3"
 dependencies = [
  "onessa-utils",
  "thiserror",
@@ -651,7 +651,7 @@ dependencies = [
 
 [[package]]
 name = "onessa-tests"
-version = "0.1.0"
+version = "0.2.3"
 dependencies = [
  "logos",
  "onessa-ast",
@@ -664,7 +664,7 @@ dependencies = [
 
 [[package]]
 name = "onessa-utils"
-version = "0.1.0"
+version = "0.2.3"
 dependencies = [
  "fnv",
  "thiserror",
@@ -672,7 +672,7 @@ dependencies = [
 
 [[package]]
 name = "onessa-vm"
-version = "0.1.0"
+version = "0.2.3"
 dependencies = [
  "chrono",
  "onessa-core",
