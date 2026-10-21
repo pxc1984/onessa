@@ -86,10 +86,11 @@ mod tests {
 
     #[test]
     fn roundtrip() {
+        use rust_decimal::Decimal;
         let object = ObjectFile::default();
         let name = object.string_table.push("<module>");
         let mut code = Vec::new();
-        Instruction::PushC(Constant::Number(1.0)).encode(&mut code);
+        Instruction::PushC(Constant::Number(Decimal::ONE)).encode(&mut code);
         Instruction::Return.encode(&mut code);
         let object = ObjectFile {
             function_table: FunctionTable {

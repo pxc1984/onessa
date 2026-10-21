@@ -180,6 +180,9 @@ colored = "3.1.1"
 # Misc
 regex = "1.12.2"
 
+# Decimal numbers
+rust_decimal = { version = "1.39", features = ["serde"] }
+
 # I/O
 memmap2 = "0.9.9"
 tempfile = "3.24.0"

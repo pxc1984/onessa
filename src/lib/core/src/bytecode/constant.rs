@@ -1,3 +1,4 @@
+use rust_decimal::Decimal;
 use std::fmt::{Display, Formatter};
 
 /// Operand of `PUSH_C`.
@@ -6,7 +7,7 @@ pub enum Constant {
     Undefined,
     Null,
     Boolean(bool),
-    Number(f64),
+    Number(Decimal),
     /// Index into the string table.
     String(u32),
     /// Seconds since the Unix epoch (UTC).

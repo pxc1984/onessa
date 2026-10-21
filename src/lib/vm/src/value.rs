@@ -1,22 +1,49 @@
 use chrono::{DateTime, Datelike, NaiveDateTime, Timelike};
+use rust_decimal::Decimal;
 use std::cmp::Ordering;
+use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::rc::Rc;
 
 /// Runtime value of the language. Strings are immutable and shared.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub enum Value {
     Undefined,
     Null,
     Boolean(bool),
-    Number(f64),
+    Number(Decimal),
     String(Rc<str>),
     Date(NaiveDateTime),
+    /// Array (Массив) - ordered collection with 1-based indexing
+    Array(Vec<Value>),
+    /// Structure (Структура) - key-value pairs with string keys
+    Structure(HashMap<String, Value>),
+    /// Object - instance with properties and methods
+    Object {
+        type_name: Rc<str>,
+        properties: HashMap<String, Value>,
+        methods: HashMap<String, u32>, // method name -> function index
+    },
 }
 
-/// Significant digits kept when printing numbers, hiding binary floating point noise
-/// (`0.1 + 0.2` prints as `0,3`).
-const PRINT_PRECISION: usize = 15;
+impl PartialEq for Value {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Value::Undefined, Value::Undefined) => true,
+            (Value::Null, Value::Null) => true,
+            (Value::Boolean(a), Value::Boolean(b)) => a == b,
+            (Value::Number(a), Value::Number(b)) => a == b,
+            (Value::String(a), Value::String(b)) => a == b,
+            (Value::Date(a), Value::Date(b)) => a == b,
+            (Value::Array(a), Value::Array(b)) => a == b,
+            (Value::Structure(a), Value::Structure(b)) => a == b,
+            (Value::Object { type_name: tn1, properties: p1, .. }, Value::Object { type_name: tn2, properties: p2, .. }) => {
+                tn1 == tn2 && p1 == p2
+            }
+            _ => false,
+        }
+    }
+}
 
 pub const NOT_A_NUMBER: &str = "Преобразование значения к типу Число не может быть выполнено";
 pub const NOT_A_BOOLEAN: &str = "Преобразование значения к типу Булево не может быть выполнено";
@@ -37,7 +64,7 @@ impl Value {
             .expect("valid date")
     }
 
-    pub fn type_name(&self) -> &'static str {
+    pub fn type_name(&self) -> &str {
         match self {
             Value::Undefined => "Неопределено",
             Value::Null => "Null",
@@ -45,6 +72,9 @@ impl Value {
             Value::Number(_) => "Число",
             Value::String(_) => "Строка",
             Value::Date(_) => "Дата",
+            Value::Array(_) => "Массив",
+            Value::Structure(_) => "Структура",
+            Value::Object { type_name, .. } => type_name,
         }
     }
 
@@ -52,7 +82,7 @@ impl Value {
     pub fn to_boolean(&self) -> Result<bool, String> {
         match self {
             Value::Boolean(b) => Ok(*b),
-            Value::Number(n) => Ok(*n != 0.0),
+            Value::Number(n) => Ok(*n != Decimal::ZERO),
             Value::String(s) => match s.trim().to_lowercase().as_str() {
                 "истина" | "да" | "true" => Ok(true),
                 "ложь" | "нет" | "false" => Ok(false),
@@ -63,7 +93,7 @@ impl Value {
     }
 
     /// Conversion used by arithmetic and `Число()`: numbers and numeric strings.
-    pub fn to_number(&self) -> Result<f64, String> {
+    pub fn to_number(&self) -> Result<Decimal, String> {
         match self {
             Value::Number(n) => Ok(*n),
             Value::String(s) => {
@@ -74,16 +104,15 @@ impl Value {
                     .map(|c| if c == ',' { '.' } else { c })
                     .collect();
                 normalized
-                    .parse::<f64>()
+                    .parse::<Decimal>()
                     .ok()
-                    .filter(|n| n.is_finite())
                     .ok_or_else(|| NOT_A_NUMBER.to_string())
             }
             _ => Err(NOT_A_NUMBER.to_string()),
         }
     }
 
-    /// Ordering for `<`, `<=`, `>`, `>=`: only between values of the same primitive type.
+    /// Ordering for `<`, `<=`, `>`, `>=`: only between values of the same primitive types.
     pub fn compare(&self, other: &Value) -> Result<Ordering, String> {
         let ordering = match (self, other) {
             (Value::Number(a), Value::Number(b)) => a.partial_cmp(b),
@@ -102,9 +131,12 @@ impl Value {
         match self {
             Value::Undefined | Value::Null => false,
             Value::Boolean(_) => true,
-            Value::Number(n) => *n != 0.0,
+            Value::Number(n) => *n != Decimal::ZERO,
             Value::String(s) => !s.trim().is_empty(),
             Value::Date(d) => *d != Self::empty_date(),
+            Value::Array(arr) => !arr.is_empty(),
+            Value::Structure(map) => !map.is_empty(),
+            Value::Object { properties, .. } => !properties.is_empty(),
         }
     }
 }
@@ -116,7 +148,7 @@ impl Display for Value {
             Value::Undefined | Value::Null => Ok(()),
             Value::Boolean(true) => write!(f, "Да"),
             Value::Boolean(false) => write!(f, "Нет"),
-            Value::Number(n) => write!(f, "{}", format_number(*n)),
+            Value::Number(n) => write!(f, "{}", format_decimal(*n)),
             Value::String(s) => write!(f, "{s}"),
             Value::Date(d) => write!(
                 f,
@@ -128,33 +160,49 @@ impl Display for Value {
                 d.minute(),
                 d.second()
             ),
+            Value::Array(arr) => {
+                write!(f, "Массив[{}]", arr.len())
+            }
+            Value::Structure(map) => {
+                write!(f, "Структура{{{}}}", map.len())
+            }
+            Value::Object { type_name, .. } => {
+                write!(f, "Объект({})", type_name)
+            }
         }
     }
 }
 
-/// `1234567.5` → `1 234 567,5` (groups separated by a non-breaking space).
-fn format_number(n: f64) -> String {
-    let int_digits = if n.abs() < 1.0 {
-        1
+/// Format Decimal with Russian locale: `1 234 567,5` (groups separated by non-breaking space).
+fn format_decimal(n: Decimal) -> String {
+    // Normalize to remove trailing zeros
+    let n = n.normalize();
+    
+    let (int_part, frac_part) = if n.scale() == 0 {
+        (n.trunc().to_string(), None)
     } else {
-        n.abs().log10().floor() as usize + 1
-    };
-    let decimals = PRINT_PRECISION.saturating_sub(int_digits);
-    let mut text = format!("{:.*}", decimals, n.abs());
-    if text.contains('.') {
-        text = text.trim_end_matches('0').trim_end_matches('.').to_string();
-    }
-    let (int_part, frac_part) = match text.split_once('.') {
-        Some((i, f)) => (i.to_string(), Some(f.to_string())),
-        None => (text, None),
+        let s = n.to_string();
+        if let Some((i, f)) = s.split_once('.') {
+            // Trim trailing zeros from fractional part
+            let f = f.trim_end_matches('0');
+            if f.is_empty() {
+                (i.to_string(), None)
+            } else {
+                (i.to_string(), Some(f.to_string()))
+            }
+        } else {
+            (s, None)
+        }
     };
 
     let mut out = String::new();
-    if n < 0.0 && (int_part != "0" || frac_part.is_some()) {
+    let is_negative = n.is_sign_negative();
+    if is_negative && int_part != "0" {
         out.push('-');
     }
-    let len = int_part.len();
-    for (i, digit) in int_part.chars().enumerate() {
+    let int_digits = int_part.trim_start_matches('-');
+    let len = int_digits.len();
+    for (i, digit) in int_digits.chars().enumerate() {
         if i > 0 && (len - i) % 3 == 0 {
             out.push('\u{00A0}');
         }
@@ -170,17 +218,19 @@ fn format_number(n: f64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rust_decimal::Decimal;
 
     #[test]
     fn number_formatting() {
-        assert_eq!(format_number(0.0), "0");
-        assert_eq!(format_number(-0.0), "0");
-        assert_eq!(format_number(5.0), "5");
-        assert_eq!(format_number(-12.5), "-12,5");
-        assert_eq!(format_number(1234.0), "1\u{00A0}234");
-        assert_eq!(format_number(1234567.25), "1\u{00A0}234\u{00A0}567,25");
-        assert_eq!(format_number(0.1 + 0.2), "0,3");
-        assert_eq!(format_number(1.0 / 3.0), "0,33333333333333");
+        assert_eq!(format_decimal(Decimal::ZERO), "0");
+        assert_eq!(format_decimal(Decimal::new(5, 0)), "5");
+        assert_eq!(format_decimal(Decimal::new(-125, 1)), "-12,5");
+        assert_eq!(format_decimal(Decimal::new(1234, 0)), "1\u{00A0}234");
+        assert_eq!(format_decimal(Decimal::new(123456725, 2)), "1\u{00A0}234\u{00A0}567,25");
+        // Test exact decimal arithmetic: 0.1 + 0.2 = 0.3
+        let a = Decimal::new(1, 1); // 0.1
+        let b = Decimal::new(2, 1); // 0.2
+        assert_eq!(format_decimal(a + b), "0,3");
     }
 
     #[test]
@@ -189,14 +239,29 @@ mod tests {
         assert_eq!(Value::Undefined.to_string(), "");
         let date = Value::date_from_timestamp(1_704_067_200).unwrap();
         assert_eq!(date.to_string(), "01.01.2024 0:00:00");
+        let arr = Value::Array(vec![Value::Number(Decimal::ONE)]);
+        assert_eq!(arr.to_string(), "Массив[1]");
+        let mut map = HashMap::new();
+        map.insert("key".to_string(), Value::Number(Decimal::ONE));
+        let structure = Value::Structure(map);
+        assert_eq!(structure.to_string(), "Структура{1}");
     }
 
     #[test]
     fn conversions() {
-        assert_eq!(Value::string(" 1 234,5 ").to_number(), Ok(1234.5));
+        assert_eq!(Value::string(" 1 234,5 ").to_number(), Ok(Decimal::new(12345, 1)));
         assert!(Value::string("abc").to_number().is_err());
-        assert_eq!(Value::Number(2.0).to_boolean(), Ok(true));
+        assert_eq!(Value::Number(Decimal::new(2, 0)).to_boolean(), Ok(true));
         assert!(Value::Undefined.to_boolean().is_err());
-        assert!(Value::Number(1.0).compare(&Value::string("1")).is_err());
+        assert!(Value::Number(Decimal::ONE).compare(&Value::string("1")).is_err());
+    }
+
+    #[test]
+    fn decimal_arithmetic() {
+        // Verify exact decimal arithmetic
+        let a = Decimal::new(1, 1); // 0.1
+        let b = Decimal::new(2, 1); // 0.2
+        let c = Decimal::new(3, 1); // 0.3
+        assert_eq!(a + b, c);
     }
 }

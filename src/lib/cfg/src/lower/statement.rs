@@ -206,7 +206,7 @@ impl FunctionBuilder<'_> {
 
         self.switch_to(increment);
         self.emit_load(counter, line);
-        self.emit(Instruction::PushC(Constant::Number(1.0)), line);
+        self.emit(Instruction::PushC(Constant::Number(rust_decimal::Decimal::ONE)), line);
         self.emit(Instruction::Add, line);
         self.emit_store(counter, line);
         self.terminate(Terminator::Jump(header), line);

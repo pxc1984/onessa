@@ -20,12 +20,12 @@ fn simple_module() {
 globals: 0, entry: fn#0
 fn#0 <module> (params: 0, locals: 1)
   0000  PUSH_C 1  ; line 1
-  0010  POP_V 0
-  0013  PUSH_V 0  ; line 2
-  0016  CALL_NATIVE str#0 1  ; \"Сообщить\"
-  0022  POP
-  0023  PUSH_C undefined
-  0025  RETURN
+  0019  POP_V 0
+  0022  PUSH_V 0  ; line 2
+  0025  CALL_NATIVE str#0 1  ; \"Сообщить\"
+  0031  POP
+  0032  PUSH_C undefined
+  0034  RETURN
 "
     );
 }
@@ -39,14 +39,14 @@ fn branches_fall_through_and_jump_to_offsets() {
 globals: 0, entry: fn#0
 fn#0 <module> (params: 0, locals: 1)
   0000  PUSH_C true  ; line 1
-  0002  JUMP_IF_FALSE 25
+  0002  JUMP_IF_FALSE 34
   0007  PUSH_C 1  ; line 2
-  0017  POP_V 0
-  0020  JUMP 38
-  0025  PUSH_C 2  ; line 4
-  0035  POP_V 0
-  0038  PUSH_C undefined  ; line 5
-  0040  RETURN
+  0026  POP_V 0
+  0029  JUMP 56
+  0034  PUSH_C 2  ; line 4
+  0053  POP_V 0
+  0056  PUSH_C undefined  ; line 5
+  0058  RETURN
 "
     );
 }

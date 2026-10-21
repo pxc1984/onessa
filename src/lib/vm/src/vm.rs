@@ -3,6 +3,7 @@ use crate::native::{self, Native, NativeContext};
 use crate::value::Value;
 use onessa_core::bytecode::{Constant, Instruction};
 use onessa_core::object::{FunctionEntry, ObjectFile};
+use rust_decimal::Decimal;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::io::Write;
@@ -185,7 +186,7 @@ impl<'a> Vm<'a> {
             Instruction::Div | Instruction::Mod => {
                 let (lhs, rhs) = self.pop2()?;
                 let (lhs, rhs) = (lhs.to_number()?, rhs.to_number()?);
-                if rhs == 0.0 {
+                if rhs == Decimal::ZERO {
                     return Err("Деление на 0".to_string());
                 }
                 let result = if instruction == Instruction::Div {
@@ -332,7 +333,10 @@ impl<'a> Vm<'a> {
 fn add(lhs: Value, rhs: Value) -> Result<Value, String> {
     Ok(match (lhs, rhs) {
         (Value::String(a), rhs) => Value::string(format!("{a}{rhs}")),
-        (Value::Date(d), rhs) => Value::Date(shift_date(d, rhs.to_number()?)?),
+        (Value::Date(d), rhs) => {
+            let secs: i64 = rhs.to_number()?.try_into().map_err(|_| "Число слишком большое для даты")?;
+            Value::Date(shift_date(d, secs)?)
+        }
         (lhs @ Value::Number(_), rhs) => Value::Number(lhs.to_number()? + rhs.to_number()?),
         _ => return Err("Преобразование значения к типу Число не может быть выполнено".into()),
     })
@@ -340,14 +344,20 @@ fn add(lhs: Value, rhs: Value) -> Result<Value, String> {
 
 fn sub(lhs: Value, rhs: Value) -> Result<Value, String> {
     Ok(match (lhs, rhs) {
-        (Value::Date(a), Value::Date(b)) => Value::Number((a - b).num_seconds() as f64),
-        (Value::Date(d), rhs) => Value::Date(shift_date(d, -rhs.to_number()?)?),
+        (Value::Date(a), Value::Date(b)) => {
+            let secs = (a - b).num_seconds() as i64;
+            Value::Number(Decimal::from(secs as u32))
+        }
+        (Value::Date(d), rhs) => {
+            let secs: i64 = rhs.to_number()?.try_into().map_err(|_| "Число слишком большое для даты")?;
+            Value::Date(shift_date(d, -secs)?)
+        }
         (lhs, rhs) => Value::Number(lhs.to_number()? - rhs.to_number()?),
     })
 }
 
-fn shift_date(date: chrono::NaiveDateTime, seconds: f64) -> Result<chrono::NaiveDateTime, String> {
-    chrono::TimeDelta::try_seconds(seconds.trunc() as i64)
+fn shift_date(date: chrono::NaiveDateTime, seconds: i64) -> Result<chrono::NaiveDateTime, String> {
+    chrono::TimeDelta::try_seconds(seconds)
         .and_then(|delta| date.checked_add_signed(delta))
         .ok_or_else(|| "Недопустимое значение даты".to_string())
 }

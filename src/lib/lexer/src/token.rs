@@ -1,5 +1,6 @@
 use chrono::{DateTime, TimeZone, Utc};
 use logos::{Lexer, Logos};
+use rust_decimal::Decimal;
 
 #[derive(Logos, Debug, PartialEq, Clone, PartialOrd)]
 #[logos(skip(r"[ \t\r\n\f\u{FEFF}]+"))]
@@ -217,7 +218,7 @@ pub enum Token {
 
     // 5. Литералы
     #[regex(r"\d+(\.\d+)?", priority = 3, callback = parse_number)]
-    NumberLiteral(f64),
+    NumberLiteral(Decimal),
 
     #[regex(r#""([^"\\]|\\["\\nrt\t])*""#, priority = 3, callback = parse_string)]
     StringLiteral(String),
@@ -230,7 +231,7 @@ pub enum Token {
     Identifier(String),
 }
 
-fn parse_number(lex: &mut Lexer<Token>) -> Option<f64> {
+fn parse_number(lex: &mut Lexer<Token>) -> Option<Decimal> {
     lex.slice().parse().ok()
 }
 
@@ -307,6 +308,8 @@ mod tests {
     use crate::token::Token;
     use chrono::{TimeZone, Utc};
     use logos::Logos;
+    use rust_decimal::Decimal;
+    use std::str::FromStr;
 
     fn assert_tokens(input: &str, expected: &[Token]) {
         let mut lex = Token::lexer(input);
@@ -380,7 +383,7 @@ mod tests {
                 Token::Var,
                 Token::Identifier("А".to_string()),
                 Token::Eq,
-                Token::NumberLiteral(5f64),
+                Token::NumberLiteral(rust_decimal::Decimal::from(5)),
                 Token::Semicolon,
             ],
         );
@@ -477,9 +480,9 @@ mod tests {
         assert_tokens(
             "0 1 12.5 \"строка\" \"строка\\n\\t\\\"ок\\\"\" '20240101' '19990101000000'",
             &[
-                Token::NumberLiteral(0f64),
-                Token::NumberLiteral(1f64),
-                Token::NumberLiteral(12.5f64),
+                Token::NumberLiteral(rust_decimal::Decimal::from(0)),
+                Token::NumberLiteral(rust_decimal::Decimal::from(1)),
+                Token::NumberLiteral(Decimal::from_str("12.5").unwrap()),
                 Token::StringLiteral("строка".to_string()),
                 Token::StringLiteral("строка\n\t\"ок\"".to_string()),
                 Token::DateLiteral(Utc.with_ymd_and_hms(2024, 01, 01, 0, 0, 0).unwrap()), // I wrote these test cases so I'm sure
@@ -565,7 +568,7 @@ mod tests {
                 Token::Semicolon,
                 Token::Identifier("Сумма".to_string()),
                 Token::Eq,
-                Token::NumberLiteral(0f64),
+                Token::NumberLiteral(rust_decimal::Decimal::from(0)),
                 Token::Semicolon,
                 Token::EndProcedure,
             ],
@@ -634,13 +637,13 @@ mod tests {
                 Token::While,
                 Token::Identifier("Счетчик".to_string()),
                 Token::Lt,
-                Token::NumberLiteral(10f64),
+                Token::NumberLiteral(rust_decimal::Decimal::from(10)),
                 Token::Do,
                 Token::Identifier("Счетчик".to_string()),
                 Token::Eq,
                 Token::Identifier("Счетчик".to_string()),
                 Token::Plus,
-                Token::NumberLiteral(1f64),
+                Token::NumberLiteral(rust_decimal::Decimal::from(1)),
                 Token::Semicolon,
                 Token::EndDo,
             ],
@@ -676,18 +679,18 @@ mod tests {
                 Token::For,
                 Token::Identifier("Сч".to_string()),
                 Token::Eq,
-                Token::NumberLiteral(1f64),
+                Token::NumberLiteral(rust_decimal::Decimal::from(1)),
                 Token::To,
                 Token::Identifier("Н".to_string()),
                 Token::Minus,
-                Token::NumberLiteral(1f64),
+                Token::NumberLiteral(rust_decimal::Decimal::from(1)),
                 Token::Do,
                 Token::For,
                 Token::Identifier("i".to_string()),
                 Token::Eq,
-                Token::NumberLiteral(1f64),
+                Token::NumberLiteral(rust_decimal::Decimal::from(1)),
                 Token::To,
-                Token::NumberLiteral(2f64),
+                Token::NumberLiteral(rust_decimal::Decimal::from(2)),
                 Token::Do,
             ],
         );

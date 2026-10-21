@@ -9,6 +9,7 @@ onessa-core.workspace = true
 onessa-lexer.workspace = true
 logos.workspace = true
 rowan.workspace = true
+rust_decimal.workspace = true
 
 
 [lints]

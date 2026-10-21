@@ -9,6 +9,7 @@ log = { workspace = true }
 ahash = { workspace = true }
 dashmap.workspace = true
 byteorder = { workspace = true }
+rust_decimal.workspace = true
 
 [lints]
 workspace = true

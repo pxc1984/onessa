@@ -13,6 +13,8 @@
       <sourceFolder url="file://$MODULE_DIR$/src/lib/lexer/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/src/lib/cfg/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/src/lib/bytecode/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/src/lib/codegen/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/src/lib/vm/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/.vscode" />
       <excludeFolder url="file://$MODULE_DIR$/src/app/.svelte-kit" />
       <excludeFolder url="file://$MODULE_DIR$/src/app/.vscode" />

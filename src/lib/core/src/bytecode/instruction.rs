@@ -1,4 +1,5 @@
 use crate::bytecode::Constant;
+use rust_decimal::Decimal;
 use std::fmt::{Display, Formatter};
 
 /// A single VM instruction.
@@ -167,7 +168,13 @@ impl Instruction<u32> {
                     Constant::Boolean(true) => out.push(Constant::TAG_TRUE),
                     Constant::Number(n) => {
                         out.push(Constant::TAG_NUMBER);
-                        out.extend_from_slice(&n.to_le_bytes());
+                        // Decimal is 128 bits: lo (32) + mid (32) + hi (32) + scale (32)
+                        let unpacked = n.unpack();
+                        out.extend_from_slice(&unpacked.lo.to_le_bytes());
+                        out.extend_from_slice(&unpacked.mid.to_le_bytes());
+                        out.extend_from_slice(&unpacked.hi.to_le_bytes());
+                        out.extend_from_slice(&unpacked.scale.to_le_bytes());
+                        out.push(if unpacked.negative { 1 } else { 0 });
                     }
                     Constant::String(idx) => {
                         out.push(Constant::TAG_STRING);
@@ -224,7 +231,8 @@ impl Instruction<u32> {
     pub fn encoded_len(&self) -> usize {
         use Instruction::*;
         match self {
-            PushC(Constant::Number(_)) | PushC(Constant::Date(_)) => 10,
+            PushC(Constant::Number(_)) => 19, // 1 opcode + 1 tag + 17 bytes for Decimal (16 + 1 sign)
+            PushC(Constant::Date(_)) => 10,
             PushC(Constant::String(_)) => 6,
             PushC(_) | PushOut(_) => 2,
             PushV(_) | PopV(_) | PushG(_) | PopG(_) => 3,
@@ -248,7 +256,13 @@ impl Instruction<u32> {
                     Constant::TAG_FALSE => Constant::Boolean(false),
                     Constant::TAG_TRUE => Constant::Boolean(true),
                     Constant::TAG_NUMBER => {
-                        Constant::Number(f64::from_le_bytes(read_array(code, pc)?))
+                        // Decimal is 128 bits: lo (32) + mid (32) + hi (32) + scale (32) + sign (8)
+                        let lo = u32::from_le_bytes(read_array(code, pc)?);
+                        let mid = u32::from_le_bytes(read_array(code, pc)?);
+                        let hi = u32::from_le_bytes(read_array(code, pc)?);
+                        let scale = u32::from_le_bytes(read_array(code, pc)?);
+                        let negative = read_u8(code, pc)? != 0;
+                        Constant::Number(Decimal::from_parts(lo, mid, hi, negative, scale))
                     }
                     Constant::TAG_STRING => Constant::String(read_u32(code, pc)?),
                     Constant::TAG_DATE => Constant::Date(i64::from_le_bytes(read_array(code, pc)?)),
@@ -376,7 +390,7 @@ mod tests {
             PushC(Constant::Null),
             PushC(Constant::Boolean(true)),
             PushC(Constant::Boolean(false)),
-            PushC(Constant::Number(-12.5)),
+            PushC(Constant::Number(Decimal::new(-125, 1))), // -12.5
             PushC(Constant::String(7)),
             PushC(Constant::Date(1_700_000_000)),
             PushV(3),
