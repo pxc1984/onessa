@@ -5,10 +5,10 @@ version.workspace = true
 publish = false
 
 [dependencies]
-log = "0.4.29"
-ahash = "0.8.12"
+log = { workspace = true }
+ahash = { workspace = true }
 dashmap.workspace = true
-byteorder = "1.5.0"
+byteorder = { workspace = true }
 
 [lints]
 workspace = true

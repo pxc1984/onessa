@@ -1,29 +1,14 @@
-use chrono::{DateTime, Utc};
-use onessa_core::object::ObjectFile;
 use crate::cli::RunArgs;
+use log::error;
+use onessa_core::object::ObjectFile;
 
-#[repr(u16)]
-pub enum Instruction {
-    // Category 1: Stack management
-    PushC,
-    PushV,
-    PopV,
-    Pop,
-    Dup,
-}
-
-pub enum Variable {
-    Int(f64),
-    String(String),
-    Date(DateTime<Utc>),
-}
-
-pub struct VirtualMachine {
-    pub stack: Vec<Variable>,
-    pub variables: Vec<Variable>,
-}
-
-pub fn run(args: RunArgs) -> Option<i32> {
-    let mut obj = ObjectFile::from_file(args.input).ok()?;
-    todo!()
+pub fn run(args: RunArgs) -> i32 {
+    let _obj = match ObjectFile::from_file(&args.input) {
+        Ok(obj) => obj,
+        Err(err) => {
+            error!("Failed to load {}: {err}", args.input.display());
+            return 1;
+        }
+    };
+    todo!("virtual machine")
 }
