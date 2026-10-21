@@ -120,11 +120,9 @@ impl FunctionBuilder<'_> {
         }
 
         for (condition, block) in branches {
-            let line = self.ctx.line(&condition);
-            self.lower_condition(&condition);
             let then = self.new_block();
             let otherwise = self.new_block();
-            self.terminate(Terminator::Branch { then, otherwise }, line);
+            self.lower_branch(&condition, then, otherwise);
 
             self.switch_to(then);
             self.lower_block(&block);
@@ -153,14 +151,7 @@ impl FunctionBuilder<'_> {
 
         self.terminate(Terminator::Jump(header), line);
         self.switch_to(header);
-        self.lower_condition(&condition);
-        self.terminate(
-            Terminator::Branch {
-                then: body,
-                otherwise: exit,
-            },
-            line,
-        );
+        self.lower_branch(&condition, body, exit);
 
         self.switch_to(body);
         self.lower_loop_body(&block, exit, header);

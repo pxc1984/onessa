@@ -86,10 +86,45 @@ impl FunctionBuilder<'_> {
         }
     }
 
-    /// Lowers a condition of `Если`, `Пока` or `?(,,)`.
-    pub fn lower_condition(&mut self, node: &SyntaxNode<Lang>) {
+    /// Lowers a condition of `Если`, `Пока` or `?(,,)` and ends the block: control continues
+    /// in `then` if the condition is `Истина`, otherwise in `otherwise`. `И`, `ИЛИ` and `НЕ`
+    /// become jumps, so their values are never computed.
+    pub fn lower_branch(&mut self, node: &SyntaxNode<Lang>, then: usize, otherwise: usize) {
+        match node.kind() {
+            SyntaxKind::Expression | SyntaxKind::ParenExpression => {
+                if let Some(inner) = child_nodes(node).next() {
+                    return self.lower_branch(&inner, then, otherwise);
+                }
+            }
+            SyntaxKind::BinaryExpression => {
+                let operator = child_tokens(node)
+                    .map(|t| t.kind())
+                    .find(|k| is_operator(*k));
+                let mut operands = child_nodes(node);
+                if let (Some(operator @ (SyntaxKind::And | SyntaxKind::Or)), Some(lhs), Some(rhs)) =
+                    (operator, operands.next(), operands.next())
+                {
+                    let rhs_block = self.new_block();
+                    if operator == SyntaxKind::And {
+                        self.lower_branch(&lhs, rhs_block, otherwise);
+                    } else {
+                        self.lower_branch(&lhs, then, rhs_block);
+                    }
+                    self.switch_to(rhs_block);
+                    return self.lower_branch(&rhs, then, otherwise);
+                }
+            }
+            SyntaxKind::UnaryExpression if first_token_kind(node) == Some(SyntaxKind::Not) => {
+                if let Some(operand) = child_nodes(node).next() {
+                    return self.lower_branch(&operand, otherwise, then);
+                }
+            }
+            _ => {}
+        }
+        let line = self.ctx.line(node);
         let condition = self.lower_expression(node);
         self.type_error(node, types::condition(condition));
+        self.terminate(Terminator::Branch { then, otherwise }, line);
     }
 
     fn lower_unary(&mut self, node: &SyntaxNode<Lang>, line: u32) -> Type {
@@ -191,8 +226,7 @@ impl FunctionBuilder<'_> {
         let otherwise = self.new_block();
         let end = self.new_block();
 
-        self.lower_condition(&condition);
-        self.terminate(Terminator::Branch { then, otherwise }, line);
+        self.lower_branch(&condition, then, otherwise);
         self.switch_to(then);
         let true_type = self.lower_expression(&if_true);
         self.terminate(Terminator::Jump(end), line);
