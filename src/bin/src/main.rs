@@ -24,6 +24,7 @@ fn main() {
 
     match cli_args.command {
         Command::Compile(args) => compile(args),
+        Command::Build(args) => compile(args),
         Command::Run(args) => exit(run(args)),
         Command::Disasm(args) => exit(disasm(args)),
     }

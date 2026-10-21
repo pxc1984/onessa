@@ -19,6 +19,7 @@ pub struct CLIArgs {
 pub enum Command {
     /// Compile a module into an object file (`.osc`)
     Compile(CompileArgs),
+    Build(CompileArgs),
     /// Run an object file, or compile and run a source file
     Run(RunArgs),
     /// Print the bytecode of an object or source file
