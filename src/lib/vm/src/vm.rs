@@ -333,6 +333,21 @@ impl<'a> Vm<'a> {
                     let index = &locals[base + slot as usize];
                     *collection = check!(objects::index_get(collection, index));
                 }
+                Op::IndexVV { collection, index } => {
+                    let value = check!(objects::index_get(
+                        &locals[base + collection as usize],
+                        &locals[base + index as usize],
+                    ));
+                    stack.push(value);
+                }
+                Op::IndexVVV { collection, i, k } => {
+                    let value = check!(objects::index_get2(
+                        &locals[base + collection as usize],
+                        &locals[base + i as usize],
+                        &locals[base + k as usize],
+                    ));
+                    stack.push(value);
+                }
                 Op::IndexGetC(constant) => {
                     let collection = top!();
                     let index = &constants[constant as usize];

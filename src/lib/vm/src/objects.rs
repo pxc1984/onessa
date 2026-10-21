@@ -38,7 +38,32 @@ fn new_array(dimensions: &[Value]) -> Result<Value, String> {
 }
 
 /// `collection[index]`
+#[inline(always)]
 pub fn index_get(collection: &Value, index: &Value) -> Result<Value, String> {
+    if let (Value::Array(items), Value::Int(i)) = (collection, index) {
+        // A negative index wraps around to a huge one and takes the slow path.
+        if let Some(item) = items.borrow().get(*i as usize) {
+            return Ok(item.clone());
+        }
+    }
+    index_get_slow(collection, index)
+}
+
+/// `collection[i][k]` without cloning `collection[i]` when it is an array.
+#[inline(always)]
+pub fn index_get2(collection: &Value, i: &Value, k: &Value) -> Result<Value, String> {
+    if let (Value::Array(outer), Value::Int(i), Value::Int(k)) = (collection, i, k) {
+        if let Some(Value::Array(inner)) = outer.borrow().get(*i as usize) {
+            if let Some(item) = inner.borrow().get(*k as usize) {
+                return Ok(item.clone());
+            }
+        }
+    }
+    index_get(&index_get(collection, i)?, k)
+}
+
+#[inline(never)]
+fn index_get_slow(collection: &Value, index: &Value) -> Result<Value, String> {
     match collection {
         Value::Array(items) => index_get_items(&items.borrow(), index),
         _ => Err(NOT_INDEXABLE.to_string()),

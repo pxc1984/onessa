@@ -88,6 +88,17 @@ pub enum Op {
     IndexGetV(u16),
     /// `PUSH_C constant; INDEX_GET`
     IndexGetC(u32),
+    /// `PUSH_V collection; PUSH_V index; INDEX_GET`
+    IndexVV {
+        collection: u16,
+        index: u16,
+    },
+    /// `PUSH_V collection; PUSH_V i; INDEX_GET; PUSH_V k; INDEX_GET`
+    IndexVVV {
+        collection: u16,
+        i: u16,
+        k: u16,
+    },
     /// `PUSH_V slot; <arith>`
     ArithV {
         op: Arith,
@@ -462,6 +473,28 @@ fn fuse(entries: Vec<Entry>) -> Vec<Entry> {
         out.push(Entry { op, ..first });
         i += len;
     }
+    fuse_indexing(out)
+}
+
+/// Indexing of a local collection by locals, on top of the fusions of [`fuse`].
+fn fuse_indexing(entries: Vec<Entry>) -> Vec<Entry> {
+    let mut out: Vec<Entry> = Vec::with_capacity(entries.len());
+    let mut i = 0;
+    while i < entries.len() {
+        let first = entries[i];
+        let next = |k: usize| entries.get(i + k).filter(|e| !e.is_target).map(|e| e.op);
+        let (op, len) = match (first.op, next(1), next(2)) {
+            (Op::PushV(collection), Some(Op::IndexGetV(i)), Some(Op::IndexGetV(k))) => {
+                (Op::IndexVVV { collection, i, k }, 3)
+            }
+            (Op::PushV(collection), Some(Op::IndexGetV(index)), _) => {
+                (Op::IndexVV { collection, index }, 2)
+            }
+            (op, _, _) => (op, 1),
+        };
+        out.push(Entry { op, ..first });
+        i += len;
+    }
     out
 }
 
@@ -568,8 +601,10 @@ mod tests {
         assert_eq!(
             fused(&ops, &[0]),
             [
-                Op::PushV(1),
-                Op::IndexGetV(2),
+                Op::IndexVV {
+                    collection: 1,
+                    index: 2
+                },
                 Op::ArithC {
                     op: Arith::Mul,
                     constant: 0
