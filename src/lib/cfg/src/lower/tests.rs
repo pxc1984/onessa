@@ -95,17 +95,23 @@ fn#2 (entry) <module>()
 fn by_reference_arguments_are_written_back() {
     let source = "\
 Процедура П(А, Знач Б)
+    А = Б;
+КонецПроцедуры
+Процедура Читает(А)
+    Сообщить(А);
 КонецПроцедуры
 Х = 1;
 Y = 2;
 П(Х, Y);
 П(Х + 1, Y);
+Читает(Х);
 ";
     let dump = dump(source);
     assert!(
         dump.contains("    CALL fn#0 2\n    PUSH_OUT 0\n    POP_V 0\n    POP\n"),
         "{dump}"
     );
+    // Only the first call writes back: `Читает` never changes its parameter.
     assert_eq!(dump.matches("PUSH_OUT").count(), 1, "{dump}");
 }
 

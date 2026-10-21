@@ -143,6 +143,13 @@ pub fn build_cfg_with(
         }
     }
 
+    for (index, method) in methods.iter().enumerate() {
+        let assigned = assigned_variables(method, &ctx.signature_map);
+        for param in &mut ctx.signatures[index].params {
+            param.assigned = assigned.contains(&param.name.to_lowercase());
+        }
+    }
+
     // Pass 2: method bodies, then the module body. In strict mode the result type of a
     // function depends on the bodies of the functions it calls, so the bodies are lowered
     // again until the result types stop changing; they start as "no value yet" and only
@@ -265,8 +272,10 @@ fn declare_method(ctx: &mut Context, method: &SyntaxNode<Lang>) -> bool {
             name: param_name,
             by_value: has_token(&parameter, SyntaxKind::Val),
             default,
+            assigned: false,
         });
     }
+
     if params.len() > MAX_PARAMS {
         ctx.error(
             method,
@@ -284,6 +293,42 @@ fn declare_method(ctx: &mut Context, method: &SyntaxNode<Lang>) -> bool {
         params,
     });
     true
+}
+
+/// Lowercased names of the variables a method may change: assignment targets, counters of
+/// `Для`, and variables passed to procedures and functions of the module (which may take
+/// them by reference). Global context functions and object methods never change their
+/// arguments.
+fn assigned_variables(
+    method: &SyntaxNode<Lang>,
+    methods: &HashMap<String, usize>,
+) -> std::collections::HashSet<String> {
+    let name = |node: Option<SyntaxNode<Lang>>| {
+        node.filter(|n| n.kind() == SyntaxKind::Identifier)
+            .map(|n| identifier_text(&n).to_lowercase())
+    };
+    let mut names = std::collections::HashSet::new();
+    for node in method.descendants() {
+        match node.kind() {
+            SyntaxKind::AssignmentStatement | SyntaxKind::ForStatement => {
+                names.extend(name(child_nodes(&node).next()));
+            }
+            SyntaxKind::CallExpression => {
+                let callee = name(child_nodes(&node).next());
+                if !callee.is_some_and(|callee| methods.contains_key(&callee)) {
+                    continue;
+                }
+                for arg in child_nodes(&node).skip(1) {
+                    let mut inner = child_nodes(&arg);
+                    if let (Some(single), None) = (inner.next(), inner.next()) {
+                        names.extend(name(Some(single)));
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    names
 }
 
 #[cfg(test)]

@@ -414,7 +414,7 @@ impl FunctionBuilder<'_> {
         let params: Vec<_> = signature
             .params
             .iter()
-            .map(|p| (p.by_value, p.default))
+            .map(|p| (p.by_value || !p.assigned, p.default))
             .collect();
 
         if want_value && !returns_value {
@@ -431,13 +431,13 @@ impl FunctionBuilder<'_> {
         }
 
         // Arguments that are plain variables passed to non-`Знач` parameters get the final
-        // parameter value written back after the call.
+        // parameter value written back after the call, unless the method never changes it.
         let mut write_back = Vec::new();
-        for (position, &(by_value, default)) in params.iter().enumerate() {
+        for (position, &(no_write_back, default)) in params.iter().enumerate() {
             match args.get(position) {
                 Some(Some(arg)) => {
                     self.lower_expression(arg);
-                    if !by_value {
+                    if !no_write_back {
                         if let Some((slot, variable)) = self.variable_argument(arg) {
                             write_back.push((position as u8, slot, variable));
                         }

@@ -45,6 +45,9 @@ pub struct Parameter {
     /// `Знач`: passed by value instead of by reference.
     pub by_value: bool,
     pub default: Option<onessa_core::bytecode::Constant>,
+    /// The method may change the parameter: it assigns it, uses it as the counter of `Для`
+    /// or passes it as a variable to another call. Callers write back only such parameters.
+    pub assigned: bool,
 }
 
 #[derive(Default)]
