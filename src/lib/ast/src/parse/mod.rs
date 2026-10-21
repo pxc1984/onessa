@@ -30,6 +30,9 @@ pub struct ParseSession<'a> {
     source: &'a str,
     current: Option<Token>,
     current_text: String,
+    current_span: std::ops::Range<usize>,
+    /// End of the last token added to the tree; the gap up to the next token is trivia.
+    last_end: usize,
     pub(crate) errors: Vec<String>,
 }
 
@@ -41,6 +44,8 @@ impl<'a> ParseSession<'a> {
             lexer,
             current: None,
             current_text: String::new(),
+            current_span: 0..0,
+            last_end: 0,
             errors: Vec::new(),
         };
         session.bump();
@@ -51,6 +56,7 @@ impl<'a> ParseSession<'a> {
         self.builder.start_node(SyntaxKind::Root.into());
         self.builder.start_node(SyntaxKind::SourceFile.into());
         self.parse_statement_list();
+        self.trivia_until(self.source.len());
         self.builder.finish_node();
         self.builder.finish_node();
     }

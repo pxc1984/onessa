@@ -133,6 +133,8 @@ pub enum SyntaxKind {
     DateLiteral,
 
     // Special
+    /// Whitespace and comments between tokens, kept so that the tree text equals the source.
+    Trivia,
     Error,
 }
 

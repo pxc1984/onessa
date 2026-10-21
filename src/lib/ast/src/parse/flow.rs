@@ -1,10 +1,12 @@
 use crate::parse::ParseSession;
+use crate::SyntaxKind;
 use onessa_lexer::Token;
 
 impl<'a> ParseSession<'a> {
     pub fn bump(&mut self) {
         match self.lexer.next() {
             Some(Ok(token)) => {
+                self.current_span = self.lexer.span();
                 self.current_text = self.lexer.slice().to_string();
                 self.current = Some(token);
             }
@@ -37,8 +39,19 @@ impl<'a> ParseSession<'a> {
     pub fn token_current(&mut self) {
         if let Some(token) = &self.current {
             let kind = crate::token_kind(token);
+            self.trivia_until(self.current_span.start);
             self.builder.token(kind.into(), &self.current_text);
+            self.last_end = self.current_span.end;
             self.bump();
+        }
+    }
+
+    /// Adds the skipped source text before `offset` (whitespace, comments) as a trivia token.
+    pub fn trivia_until(&mut self, offset: usize) {
+        if offset > self.last_end {
+            self.builder
+                .token(SyntaxKind::Trivia.into(), &self.source[self.last_end..offset]);
+            self.last_end = offset;
         }
     }
 

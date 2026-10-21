@@ -1,0 +1,227 @@
+mod expression;
+mod function;
+mod literal;
+mod statement;
+mod syntax;
+
+use crate::{Diagnostic, Function, Module, Parameter};
+use function::FunctionBuilder;
+use onessa_ast::{Lang, SyntaxKind};
+use onessa_core::object::StringTable;
+use rowan::{SyntaxNode, TextSize};
+use std::collections::HashMap;
+use syntax::{child_nodes, has_token, identifier_text};
+
+/// Maximum number of parameters of a method (`argc` is a single byte).
+const MAX_PARAMS: usize = u8::MAX as usize;
+
+/// Name of the synthetic method holding the module body.
+pub const MODULE_BODY_NAME: &str = "<module>";
+
+pub(crate) struct Signature {
+    pub name: String,
+    pub returns_value: bool,
+    pub export: bool,
+    pub params: Vec<Parameter>,
+}
+
+/// State shared by all methods of the module being lowered.
+pub(crate) struct Context {
+    source: String,
+    line_starts: Vec<usize>,
+    pub globals: Vec<String>,
+    pub global_map: HashMap<String, u16>,
+    pub signatures: Vec<Signature>,
+    pub signature_map: HashMap<String, usize>,
+    pub strings: StringTable,
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+impl Context {
+    fn new(source: String) -> Self {
+        let line_starts = std::iter::once(0)
+            .chain(source.match_indices('\n').map(|(i, _)| i + 1))
+            .collect();
+        Self {
+            source,
+            line_starts,
+            globals: Vec::new(),
+            global_map: HashMap::new(),
+            signatures: Vec::new(),
+            signature_map: HashMap::new(),
+            strings: StringTable::new(),
+            diagnostics: Vec::new(),
+        }
+    }
+
+    /// 1-based line and column (in characters) of a byte offset.
+    pub fn position(&self, offset: TextSize) -> (u32, u32) {
+        let offset = usize::from(offset).min(self.source.len());
+        let line = self.line_starts.partition_point(|&start| start <= offset) - 1;
+        let column = self.source[self.line_starts[line]..offset].chars().count();
+        (line as u32 + 1, column as u32 + 1)
+    }
+
+    pub fn line(&self, node: &SyntaxNode<Lang>) -> u32 {
+        self.position(first_token_offset(node)).0
+    }
+
+    pub fn error(&mut self, node: &SyntaxNode<Lang>, message: impl Into<String>) {
+        let (line, column) = self.position(first_token_offset(node));
+        self.diagnostics.push(Diagnostic {
+            message: message.into(),
+            line,
+            column,
+        });
+    }
+}
+
+/// Offset of the first non-trivia token, so that errors point at code rather than whitespace.
+fn first_token_offset(node: &SyntaxNode<Lang>) -> TextSize {
+    node.descendants_with_tokens()
+        .filter_map(|element| element.into_token())
+        .find(|token| token.kind() != SyntaxKind::Trivia)
+        .map(|token| token.text_range().start())
+        .unwrap_or_else(|| node.text_range().start())
+}
+
+/// Lowers a parsed module into a control flow graph.
+///
+/// `root` must come from a syntax tree without parse errors.
+pub fn build_cfg(root: &SyntaxNode<Lang>) -> Result<Module, Vec<Diagnostic>> {
+    let mut ctx = Context::new(root.text().to_string());
+
+    let Some(statements) = root
+        .descendants()
+        .find(|n| n.kind() == SyntaxKind::StatementList)
+    else {
+        return Err(vec![Diagnostic {
+            message: "Syntax tree has no statement list".to_string(),
+            line: 1,
+            column: 1,
+        }]);
+    };
+
+    // Pass 1: module variables and method signatures, so that methods can be called before
+    // they are declared.
+    let mut methods = Vec::new();
+    let mut body = Vec::new();
+    for statement in child_nodes(&statements) {
+        match statement.kind() {
+            SyntaxKind::VariableDeclaration => declare_globals(&mut ctx, &statement),
+            SyntaxKind::ProcedureDeclaration | SyntaxKind::FunctionDeclaration => {
+                if declare_method(&mut ctx, &statement) {
+                    methods.push(statement);
+                }
+            }
+            _ => body.push(statement),
+        }
+    }
+
+    // Pass 2: method bodies, then the module body.
+    let mut functions = Vec::with_capacity(methods.len() + 1);
+    for (index, method) in methods.iter().enumerate() {
+        functions.push(FunctionBuilder::lower_method(&mut ctx, index, method));
+    }
+    let entry = functions.len();
+    functions.push(FunctionBuilder::lower_module_body(&mut ctx, &body));
+
+    if !ctx.diagnostics.is_empty() {
+        ctx.diagnostics.sort_by_key(|d| (d.line, d.column));
+        return Err(ctx.diagnostics);
+    }
+
+    let globals = ctx.globals;
+    let strings = ctx.strings;
+    let functions = functions
+        .into_iter()
+        .map(|mut f: Function| {
+            strings.push(&f.name);
+            f.locals.shrink_to_fit();
+            f
+        })
+        .collect();
+
+    Ok(Module {
+        globals,
+        functions,
+        entry,
+        strings,
+    })
+}
+
+fn declare_globals(ctx: &mut Context, declaration: &SyntaxNode<Lang>) {
+    for identifier in child_nodes(declaration).filter(|n| n.kind() == SyntaxKind::Identifier) {
+        let name = identifier_text(&identifier);
+        let key = name.to_lowercase();
+        if ctx.global_map.contains_key(&key) {
+            ctx.error(&identifier, format!("Variable is already defined ({name})"));
+            continue;
+        }
+        if ctx.globals.len() > u16::MAX as usize {
+            ctx.error(&identifier, "Too many module variables");
+            continue;
+        }
+        ctx.global_map.insert(key, ctx.globals.len() as u16);
+        ctx.globals.push(name);
+    }
+}
+
+/// Registers the signature of a procedure or function. Returns `false` if it is invalid.
+fn declare_method(ctx: &mut Context, method: &SyntaxNode<Lang>) -> bool {
+    let Some(name_node) = child_nodes(method).find(|n| n.kind() == SyntaxKind::Identifier) else {
+        ctx.error(method, "Method has no name");
+        return false;
+    };
+    let name = identifier_text(&name_node);
+    let key = name.to_lowercase();
+    if ctx.signature_map.contains_key(&key) {
+        ctx.error(&name_node, format!("Procedure or function is already defined ({name})"));
+        return false;
+    }
+
+    let mut params: Vec<Parameter> = Vec::new();
+    for parameter in child_nodes(method).filter(|n| n.kind() == SyntaxKind::Parameter) {
+        let Some(param_name) = child_nodes(&parameter).find(|n| n.kind() == SyntaxKind::Identifier)
+        else {
+            continue;
+        };
+        let param_name = identifier_text(&param_name);
+        if params
+            .iter()
+            .any(|p| p.name.to_lowercase() == param_name.to_lowercase())
+        {
+            ctx.error(&parameter, format!("Parameter is already defined ({param_name})"));
+        }
+        let default = child_nodes(&parameter)
+            .find(|n| n.kind() == SyntaxKind::Expression)
+            .and_then(|expression| {
+                let constant = literal::constant_expression(ctx, &expression);
+                if constant.is_none() {
+                    ctx.error(&expression, "Default parameter value must be a constant");
+                }
+                constant
+            });
+        params.push(Parameter {
+            name: param_name,
+            by_value: has_token(&parameter, SyntaxKind::Val),
+            default,
+        });
+    }
+    if params.len() > MAX_PARAMS {
+        ctx.error(method, format!("Too many parameters (at most {MAX_PARAMS})"));
+        return false;
+    }
+
+    ctx.signature_map.insert(key, ctx.signatures.len());
+    ctx.signatures.push(Signature {
+        name,
+        returns_value: method.kind() == SyntaxKind::FunctionDeclaration,
+        export: has_token(method, SyntaxKind::Export),
+        params,
+    });
+    true
+}
+
+#[cfg(test)]
+mod tests;

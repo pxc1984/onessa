@@ -123,6 +123,14 @@ fn raise_and_try() {
 }
 
 #[test]
+fn tree_is_lossless() {
+    let source = "// комментарий\r\nА = 1; // ещё\n\tСообщить( А )  ;\n";
+    let (root, errors) = parse(source);
+    assert!(errors.is_empty());
+    assert_eq!(root.text().to_string(), source);
+}
+
+#[test]
 fn reports_errors() {
     let (_, errors) = parse("А = ;");
     assert!(!errors.is_empty());

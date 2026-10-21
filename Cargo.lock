@@ -494,7 +494,10 @@ dependencies = [
 name = "onessa-cfg"
 version = "0.1.0"
 dependencies = [
+ "logos",
  "onessa-ast",
+ "onessa-core",
+ "onessa-lexer",
  "rowan",
 ]
 

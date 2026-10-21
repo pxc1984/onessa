@@ -5,7 +5,11 @@ version.workspace = true
 
 [dependencies]
 onessa-ast.workspace = true
+onessa-core.workspace = true
+onessa-lexer.workspace = true
+logos.workspace = true
 rowan.workspace = true
+
 
 [lints]
 workspace = true

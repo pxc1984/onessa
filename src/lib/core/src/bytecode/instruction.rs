@@ -36,6 +36,8 @@ pub enum Instruction<L = u32> {
     JumpIfFalse(L),
     Call { function: u32, argc: u8 },
     CallNative { name: u32, argc: u8 },
+    /// Pushes the final value of by-reference parameter `n` of the call that just returned.
+    PushOut(u8),
     Return,
 
     // Category 4: Exceptions
@@ -98,6 +100,7 @@ mod opcode {
     pub const CALL: u8 = 0x22;
     pub const CALL_NATIVE: u8 = 0x23;
     pub const RETURN: u8 = 0x24;
+    pub const PUSH_OUT: u8 = 0x25;
 
     pub const TRY_BEGIN: u8 = 0x30;
     pub const TRY_END: u8 = 0x31;
@@ -134,6 +137,7 @@ impl<L> Instruction<L> {
             JumpIfFalse(l) => JumpIfFalse(f(l)),
             Call { function, argc } => Call { function, argc },
             CallNative { name, argc } => CallNative { name, argc },
+            PushOut(n) => PushOut(n),
             Return => Return,
             TryBegin(l) => TryBegin(f(l)),
             TryEnd => TryEnd,
@@ -198,6 +202,10 @@ impl Instruction<u32> {
                 encode_u32(out, opcode::CALL_NATIVE, name);
                 out.push(argc);
             }
+            PushOut(n) => {
+                out.push(opcode::PUSH_OUT);
+                out.push(n);
+            }
             Return => out.push(opcode::RETURN),
             TryBegin(target) => encode_u32(out, opcode::TRY_BEGIN, target),
             TryEnd => out.push(opcode::TRY_END),
@@ -212,7 +220,7 @@ impl Instruction<u32> {
         match self {
             PushC(Constant::Number(_)) | PushC(Constant::Date(_)) => 10,
             PushC(Constant::String(_)) => 6,
-            PushC(_) => 2,
+            PushC(_) | PushOut(_) => 2,
             PushV(_) | PopV(_) | PushG(_) | PopG(_) => 3,
             Jump(_) | JumpIfFalse(_) | TryBegin(_) => 5,
             Call { .. } | CallNative { .. } => 6,
@@ -270,6 +278,7 @@ impl Instruction<u32> {
                 name: read_u32(code, pc)?,
                 argc: read_u8(code, pc)?,
             },
+            opcode::PUSH_OUT => PushOut(read_u8(code, pc)?),
             opcode::RETURN => Return,
             opcode::TRY_BEGIN => TryBegin(read_u32(code, pc)?),
             opcode::TRY_END => TryEnd,
@@ -309,6 +318,7 @@ impl<L: Display> Display for Instruction<L> {
             JumpIfFalse(l) => write!(f, "JUMP_IF_FALSE {l}"),
             Call { function, argc } => write!(f, "CALL fn#{function} {argc}"),
             CallNative { name, argc } => write!(f, "CALL_NATIVE str#{name} {argc}"),
+            PushOut(n) => write!(f, "PUSH_OUT {n}"),
             Return => write!(f, "RETURN"),
             TryBegin(l) => write!(f, "TRY_BEGIN {l}"),
             TryEnd => write!(f, "TRY_END"),
@@ -386,6 +396,7 @@ mod tests {
             JumpIfFalse(u32::MAX),
             Call { function: 2, argc: 3 },
             CallNative { name: 9, argc: 255 },
+            PushOut(1),
             Return,
             TryBegin(100),
             TryEnd,
