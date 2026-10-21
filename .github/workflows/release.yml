@@ -68,13 +68,17 @@ jobs:
       - name: Collect release binary
         run: |
           mkdir -p release-artifacts
-          cp target/${{ matrix.target }}/production/onessa release-artifacts/onessa
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            cp target/${{ matrix.target }}/production/onessa.exe release-artifacts/onessa.exe
+          else
+            cp target/${{ matrix.target }}/production/onessa release-artifacts/onessa
+          fi
 
       - name: Upload release artifact
         uses: actions/upload-artifact@v4
         with:
           name: onessa-${{ matrix.target }}
-          path: release-artifacts/onessa
+          path: release-artifacts/
 
   release:
     name: Create draft GitHub release
