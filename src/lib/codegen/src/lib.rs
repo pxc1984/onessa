@@ -56,6 +56,38 @@ fn lower_terminator(terminator: Terminator, next: Option<BlockId>) -> Vec<Instru
         Terminator::Branch { then, otherwise } => {
             vec![Instruction::JumpIfFalse(otherwise), Instruction::Jump(then)]
         }
+        Terminator::ForCheck {
+            counter,
+            limit,
+            body,
+            exit,
+        } => {
+            let mut code = vec![Instruction::ForCheck {
+                counter,
+                limit,
+                target: exit,
+            }];
+            if Some(body) != next {
+                code.push(Instruction::Jump(body));
+            }
+            code
+        }
+        Terminator::ForStep {
+            counter,
+            limit,
+            body,
+            exit,
+        } => {
+            let mut code = vec![Instruction::ForStep {
+                counter,
+                limit,
+                target: body,
+            }];
+            if Some(exit) != next {
+                code.push(Instruction::Jump(exit));
+            }
+            code
+        }
         Terminator::Return => vec![Instruction::Return],
         Terminator::Raise => vec![Instruction::Raise],
         Terminator::ReRaise => vec![Instruction::ReRaise],

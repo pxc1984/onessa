@@ -143,23 +143,23 @@ fn#0 (entry) <module>()
     POP_V 1
     jump b1
   b1:
-    PUSH_V 0
-    PUSH_V 1
-    LE
-    branch b2 b4
+    for_check 0 1 b2 b4
   b2:
     jump b3
   b3:
-    PUSH_V 0
-    PUSH_C 1
-    ADD
-    POP_V 0
-    jump b1
+    for_step 0 1 b2 b4
   b4:
     PUSH_C undefined
     return
 "
     );
+}
+
+#[test]
+fn for_loop_with_module_variable_counter() {
+    let dump = dump("Перем Сч;\nДля Сч = 1 По 3 Цикл КонецЦикла;");
+    assert!(dump.contains("PUSH_G 0\n    PUSH_V 0\n    LE"), "{dump}");
+    assert!(!dump.contains("for_step"), "{dump}");
 }
 
 #[test]

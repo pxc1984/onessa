@@ -35,6 +35,20 @@ pub enum Instruction<L = u32> {
     // Category 3: Control flow
     Jump(L),
     JumpIfFalse(L),
+    /// Before the first iteration of `Для`: jumps to the target (the loop exit) unless
+    /// local `counter <= limit`.
+    ForCheck {
+        counter: u16,
+        limit: u16,
+        target: L,
+    },
+    /// After an iteration of `Для`: increments local `counter` by one and jumps to the target
+    /// (the loop body) if `counter <= limit`.
+    ForStep {
+        counter: u16,
+        limit: u16,
+        target: L,
+    },
     Call {
         function: u32,
         argc: u8,
@@ -122,6 +136,8 @@ mod opcode {
 
     pub const JUMP: u8 = 0x20;
     pub const JUMP_IF_FALSE: u8 = 0x21;
+    pub const FOR_CHECK: u8 = 0x26;
+    pub const FOR_STEP: u8 = 0x27;
     pub const CALL: u8 = 0x22;
     pub const CALL_NATIVE: u8 = 0x23;
     pub const RETURN: u8 = 0x24;
@@ -165,6 +181,24 @@ impl<L> Instruction<L> {
             Not => Not,
             Jump(l) => Jump(f(l)),
             JumpIfFalse(l) => JumpIfFalse(f(l)),
+            ForCheck {
+                counter,
+                limit,
+                target,
+            } => ForCheck {
+                counter,
+                limit,
+                target: f(target),
+            },
+            ForStep {
+                counter,
+                limit,
+                target,
+            } => ForStep {
+                counter,
+                limit,
+                target: f(target),
+            },
             Call { function, argc } => Call { function, argc },
             CallNative { name, argc } => CallNative { name, argc },
             PushOut(n) => PushOut(n),
@@ -234,6 +268,16 @@ impl Instruction<u32> {
             Not => out.push(opcode::NOT),
             Jump(target) => encode_u32(out, opcode::JUMP, target),
             JumpIfFalse(target) => encode_u32(out, opcode::JUMP_IF_FALSE, target),
+            ForCheck {
+                counter,
+                limit,
+                target,
+            } => encode_for(out, opcode::FOR_CHECK, counter, limit, target),
+            ForStep {
+                counter,
+                limit,
+                target,
+            } => encode_for(out, opcode::FOR_STEP, counter, limit, target),
             Call { function, argc } => {
                 encode_u32(out, opcode::CALL, function);
                 out.push(argc);
@@ -274,6 +318,7 @@ impl Instruction<u32> {
             PushC(_) | PushOut(_) => 2,
             PushV(_) | PopV(_) | PushG(_) | PopG(_) => 3,
             Jump(_) | JumpIfFalse(_) | TryBegin(_) => 5,
+            ForCheck { .. } | ForStep { .. } => 9,
             Call { .. } | CallNative { .. } | New { .. } | CallMethod { .. } => 6,
             _ => 1,
         }
@@ -327,6 +372,16 @@ impl Instruction<u32> {
             opcode::NOT => Not,
             opcode::JUMP => Jump(read_u32(code, pc)?),
             opcode::JUMP_IF_FALSE => JumpIfFalse(read_u32(code, pc)?),
+            opcode::FOR_CHECK => ForCheck {
+                counter: read_u16(code, pc)?,
+                limit: read_u16(code, pc)?,
+                target: read_u32(code, pc)?,
+            },
+            opcode::FOR_STEP => ForStep {
+                counter: read_u16(code, pc)?,
+                limit: read_u16(code, pc)?,
+                target: read_u32(code, pc)?,
+            },
             opcode::CALL => Call {
                 function: read_u32(code, pc)?,
                 argc: read_u8(code, pc)?,
@@ -383,6 +438,16 @@ impl<L: Display> Display for Instruction<L> {
             Not => write!(f, "NOT"),
             Jump(l) => write!(f, "JUMP {l}"),
             JumpIfFalse(l) => write!(f, "JUMP_IF_FALSE {l}"),
+            ForCheck {
+                counter,
+                limit,
+                target,
+            } => write!(f, "FOR_CHECK {counter} {limit} {target}"),
+            ForStep {
+                counter,
+                limit,
+                target,
+            } => write!(f, "FOR_STEP {counter} {limit} {target}"),
             Call { function, argc } => write!(f, "CALL fn#{function} {argc}"),
             CallNative { name, argc } => write!(f, "CALL_NATIVE str#{name} {argc}"),
             PushOut(n) => write!(f, "PUSH_OUT {n}"),
@@ -402,6 +467,13 @@ impl<L: Display> Display for Instruction<L> {
 fn encode_u16(out: &mut Vec<u8>, op: u8, value: u16) {
     out.push(op);
     out.extend_from_slice(&value.to_le_bytes());
+}
+
+fn encode_for(out: &mut Vec<u8>, op: u8, counter: u16, limit: u16, target: u32) {
+    out.push(op);
+    out.extend_from_slice(&counter.to_le_bytes());
+    out.extend_from_slice(&limit.to_le_bytes());
+    out.extend_from_slice(&target.to_le_bytes());
 }
 
 fn encode_u32(out: &mut Vec<u8>, op: u8, value: u32) {
@@ -465,6 +537,16 @@ mod tests {
             Not,
             Jump(42),
             JumpIfFalse(u32::MAX),
+            ForCheck {
+                counter: 1,
+                limit: 2,
+                target: 30,
+            },
+            ForStep {
+                counter: 3,
+                limit: 4,
+                target: 7,
+            },
             Call {
                 function: 2,
                 argc: 3,

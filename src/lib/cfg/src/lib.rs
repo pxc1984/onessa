@@ -68,6 +68,21 @@ pub enum Terminator {
     Raise,
     /// Re-raises the exception being handled.
     ReRaise,
+    /// Header of `Для`: continues in `body` if local `counter <= limit`, otherwise in `exit`.
+    ForCheck {
+        counter: u16,
+        limit: u16,
+        body: BlockId,
+        exit: BlockId,
+    },
+    /// End of an iteration of `Для`: increments local `counter`, then continues like
+    /// `ForCheck`.
+    ForStep {
+        counter: u16,
+        limit: u16,
+        body: BlockId,
+        exit: BlockId,
+    },
 }
 
 impl Terminator {
@@ -75,6 +90,9 @@ impl Terminator {
         match *self {
             Terminator::Jump(target) => vec![target],
             Terminator::Branch { then, otherwise } => vec![then, otherwise],
+            Terminator::ForCheck { body, exit, .. } | Terminator::ForStep { body, exit, .. } => {
+                vec![body, exit]
+            }
             Terminator::Return | Terminator::Raise | Terminator::ReRaise => Vec::new(),
         }
     }

@@ -1,4 +1,4 @@
-use crate::lower::function::{FunctionBuilder, LoopTargets};
+use crate::lower::function::{FunctionBuilder, LoopTargets, Slot};
 use crate::lower::syntax::{child_nodes, identifier_text};
 use crate::Terminator;
 use onessa_ast::{Lang, SyntaxKind};
@@ -199,27 +199,56 @@ impl FunctionBuilder<'_> {
 
         self.terminate(Terminator::Jump(header), line);
         self.switch_to(header);
-        self.emit_load(counter, line);
-        self.emit(Instruction::PushV(limit), line);
-        self.emit(Instruction::Le, line);
-        self.terminate(
-            Terminator::Branch {
-                then: body,
-                otherwise: exit,
-            },
-            line,
-        );
+        match counter {
+            Slot::Local(counter) => self.terminate(
+                Terminator::ForCheck {
+                    counter,
+                    limit,
+                    body,
+                    exit,
+                },
+                line,
+            ),
+            Slot::Global(_) => {
+                self.emit_load(counter, line);
+                self.emit(Instruction::PushV(limit), line);
+                self.emit(Instruction::Le, line);
+                self.terminate(
+                    Terminator::Branch {
+                        then: body,
+                        otherwise: exit,
+                    },
+                    line,
+                );
+            }
+        }
 
         self.switch_to(body);
         self.lower_loop_body(&block, exit, increment);
         self.terminate(Terminator::Jump(increment), line);
 
         self.switch_to(increment);
-        self.emit_load(counter, line);
-        self.emit(Instruction::PushC(Constant::Number(rust_decimal::Decimal::ONE)), line);
-        self.emit(Instruction::Add, line);
-        self.emit_store(counter, line);
-        self.terminate(Terminator::Jump(header), line);
+        match counter {
+            Slot::Local(counter) => self.terminate(
+                Terminator::ForStep {
+                    counter,
+                    limit,
+                    body,
+                    exit,
+                },
+                line,
+            ),
+            Slot::Global(_) => {
+                self.emit_load(counter, line);
+                self.emit(
+                    Instruction::PushC(Constant::Number(rust_decimal::Decimal::ONE)),
+                    line,
+                );
+                self.emit(Instruction::Add, line);
+                self.emit_store(counter, line);
+                self.terminate(Terminator::Jump(header), line);
+            }
+        }
         self.switch_to(exit);
     }
 

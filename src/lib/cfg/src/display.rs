@@ -44,6 +44,24 @@ impl Display for Function {
                 Some((Terminator::Branch { then, otherwise }, _)) => {
                     writeln!(f, "    branch b{then} b{otherwise}")?
                 }
+                Some((
+                    Terminator::ForCheck {
+                        counter,
+                        limit,
+                        body,
+                        exit,
+                    },
+                    _,
+                )) => writeln!(f, "    for_check {counter} {limit} b{body} b{exit}")?,
+                Some((
+                    Terminator::ForStep {
+                        counter,
+                        limit,
+                        body,
+                        exit,
+                    },
+                    _,
+                )) => writeln!(f, "    for_step {counter} {limit} b{body} b{exit}")?,
                 Some((Terminator::Return, _)) => writeln!(f, "    return")?,
                 Some((Terminator::Raise, _)) => writeln!(f, "    raise")?,
                 Some((Terminator::ReRaise, _)) => writeln!(f, "    reraise")?,
