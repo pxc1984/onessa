@@ -5,17 +5,23 @@ on:
     tags:
       - '*'
 
+env:
+  ZIG_VERSION: "0.13.0"
+
 jobs:
+  # Параллельная сборка на 3 архитектуры через zigbuild
   build:
-    name: Build (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
+    name: Build (${{ matrix.target }})
+    runs-on: ubuntu-latest
     strategy:
       matrix:
         include:
-          - os: ubuntu-latest
-            target: x86_64-unknown-linux-musl
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
+          - target: x86_64-unknown-linux-musl
+            artifact_name: onessa-linux-x86_64
+          - target: x86_64-pc-windows-msvc
+            artifact_name: onessa-windows-x86_64.exe
+          - target: x86_64-apple-darwin
+            artifact_name: onessa-macos-x86_64
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -28,27 +34,33 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+          key: ubuntu-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-cargo-registry-
+            ubuntu-cargo-registry-
+
+      - name: Cache cargo-zigbuild
+        uses: actions/cache@v4
+        id: cache-cargo-zigbuild
+        with:
+          path: ~/.cargo/bin/cargo-zigbuild
+          key: ubuntu-cargo-zigbuild-${{ env.ZIG_VERSION }}
+
+      - name: Install cargo-zigbuild (if not cached)
+        run: cargo install cargo-zigbuild
+        if: steps.cache-cargo-zigbuild.outputs.cache-hit != 'true'
+
+      - name: Set up Zig
+        uses: goto-bus-stop/setup-zig@v2
+        with:
+          version: ${{ env.ZIG_VERSION }}
 
       - name: Cache cargo target directory
         uses: actions/cache@v4
         with:
           path: target
-          key: ${{ runner.os }}-cargo-target-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
+          key: ubuntu-cargo-target-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-cargo-target-${{ matrix.target }}-
-
-      - name: Cache Rust toolchain
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.rustup
-            ~/.cargo/bin
-          key: ${{ runner.os }}-rust-toolchain-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-rust-toolchain-
+            ubuntu-cargo-target-${{ matrix.target }}-
 
       - name: Set up Rust toolchain
         uses: actions-rs/toolchain@v1
@@ -56,30 +68,29 @@ jobs:
           toolchain: stable
           override: true
 
-      - name: Add target (if needed)
-        run: |
-          rustup target add ${{ matrix.target }}
+      - name: Add target
+        run: rustup target add ${{ matrix.target }}
 
-      - name: Build release (static)
+      - name: Build with zigbuild
         run: |
-          rustup target add ${{ matrix.target }}
-          cargo build --profile production --target ${{ matrix.target }} --bin onessa
+          cargo zigbuild --profile production --target ${{ matrix.target }} --bin onessa
 
       - name: Collect release binary
         run: |
           mkdir -p release-artifacts
-          if [ "${{ runner.os }}" = "Windows" ]; then
-            cp target/${{ matrix.target }}/production/onessa.exe release-artifacts/onessa.exe
+          if [ "${{ matrix.target }}" = "x86_64-pc-windows-msvc" ]; then
+            cp target/${{ matrix.target }}/production/onessa.exe release-artifacts/${{ matrix.artifact_name }}
           else
-            cp target/${{ matrix.target }}/production/onessa release-artifacts/onessa
+            cp target/${{ matrix.target }}/production/onessa release-artifacts/${{ matrix.artifact_name }}
           fi
 
       - name: Upload release artifact
         uses: actions/upload-artifact@v4
         with:
-          name: onessa-${{ matrix.target }}
+          name: ${{ matrix.artifact_name }}
           path: release-artifacts/
 
+  # Создание релиза
   release:
     name: Create draft GitHub release
     needs: build
@@ -88,10 +99,14 @@ jobs:
       packages: write
       contents: write
     steps:
-      - name: Download build artifacts
+      - name: Download all build artifacts
         uses: actions/download-artifact@v4
         with:
           path: release-artifacts
+          merge-multiple: true
+
+      - name: List artifacts
+        run: ls -la release-artifacts/
 
       - name: Create draft GitHub release + upload assets
         uses: softprops/action-gh-release@v1
@@ -100,5 +115,5 @@ jobs:
           name: ${{ github.ref_name }}
           body: "Automated release for ${{ github.ref_name }}"
           draft: true
-          files: release-artifacts/**
+          files: release-artifacts/*
           token: ${{ secrets.GITHUB_TOKEN }}
