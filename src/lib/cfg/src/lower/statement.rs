@@ -1,8 +1,9 @@
 use crate::lower::function::{FunctionBuilder, LoopTargets, Slot};
 use crate::lower::syntax::{child_nodes, identifier_text};
+use crate::types::Type;
 use crate::Terminator;
 use onessa_ast::{Lang, SyntaxKind};
-use onessa_core::bytecode::{Constant, Instruction};
+use onessa_core::bytecode::{Constant, Instruction, ValueType};
 use rowan::SyntaxNode;
 
 impl FunctionBuilder<'_> {
@@ -63,11 +64,11 @@ impl FunctionBuilder<'_> {
             }
         }
 
-        self.lower_expression(&value);
+        let value_type = self.lower_expression(&value);
         // The target is declared after the value is computed, so `А = А + 1` with an
         // undefined `А` is still reported.
         if let Some(slot) = self.resolve_or_declare(&target) {
-            self.emit_store(slot, line);
+            self.store(slot, value_type, &target, line);
         }
     }
 
@@ -120,7 +121,7 @@ impl FunctionBuilder<'_> {
 
         for (condition, block) in branches {
             let line = self.ctx.line(&condition);
-            self.lower_expression(&condition);
+            self.lower_condition(&condition);
             let then = self.new_block();
             let otherwise = self.new_block();
             self.terminate(Terminator::Branch { then, otherwise }, line);
@@ -152,7 +153,7 @@ impl FunctionBuilder<'_> {
 
         self.terminate(Terminator::Jump(header), line);
         self.switch_to(header);
-        self.lower_expression(&condition);
+        self.lower_condition(&condition);
         self.terminate(
             Terminator::Branch {
                 then: body,
@@ -181,12 +182,14 @@ impl FunctionBuilder<'_> {
         };
         let line = self.ctx.line(node);
 
-        self.lower_expression(&start);
+        let start_type = self.lower_expression(&start);
+        self.check_loop_bound(&start, start_type, line);
         let Some(counter) = self.resolve_or_declare(&variable) else {
             return;
         };
-        self.emit_store(counter, line);
-        self.lower_expression(&bound);
+        self.store(counter, Type::NUMBER, &variable, line);
+        let bound_type = self.lower_expression(&bound);
+        self.check_loop_bound(&bound, bound_type, line);
         let Some(limit) = self.temp_local(node) else {
             return;
         };
@@ -250,6 +253,20 @@ impl FunctionBuilder<'_> {
             }
         }
         self.switch_to(exit);
+    }
+
+    /// In strict mode the start and the end of `Для` must be numbers.
+    fn check_loop_bound(&mut self, node: &SyntaxNode<Lang>, bound: Type, line: u32) {
+        if !self.ctx.strict {
+            return;
+        }
+        match bound {
+            Type::Known(ValueType::Number) | Type::Never => {}
+            Type::Any => self.emit(Instruction::CheckType(ValueType::Number), line),
+            other => self
+                .ctx
+                .error(node, format!("'Для' bounds must be Число, not {other}")),
+        }
     }
 
     fn lower_loop_body(&mut self, block: &SyntaxNode<Lang>, break_to: usize, continue_to: usize) {
@@ -336,7 +353,10 @@ impl FunctionBuilder<'_> {
             return;
         }
         match (self.returns_value, value) {
-            (true, Some(value)) => self.lower_expression(&value),
+            (true, Some(value)) => {
+                let value_type = self.lower_expression(&value);
+                self.returned = self.returned.join(value_type);
+            }
             (true, None) => {
                 self.ctx.error(node, "Function must return a value");
                 return;

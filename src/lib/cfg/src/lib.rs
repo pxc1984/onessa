@@ -8,9 +8,10 @@
 mod diagnostic;
 mod display;
 mod lower;
+pub mod types;
 
 pub use diagnostic::Diagnostic;
-pub use lower::build_cfg;
+pub use lower::{build_cfg, build_cfg_with, Options};
 
 use onessa_core::bytecode::Instruction;
 use onessa_core::object::StringTable;

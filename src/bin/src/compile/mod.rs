@@ -20,7 +20,7 @@ pub fn compile(args: CompileArgs) {
         }
     };
 
-    let object = compile_file(args.input);
+    let object = compile_file(args.input, args.strict);
     if let Err(err) = object.write_file(&output) {
         error!("Failed to write {}: {err}", output.display());
         exit(1);
@@ -29,7 +29,7 @@ pub fn compile(args: CompileArgs) {
 }
 
 /// Runs the whole pipeline for a source file (stdin if `None`), exiting on errors.
-pub fn compile_file(input: Option<PathBuf>) -> ObjectFile {
+pub fn compile_file(input: Option<PathBuf>, strict: bool) -> ObjectFile {
     let source = source::open_source(input);
     let source_name = source
         .path_buf
@@ -40,6 +40,6 @@ pub fn compile_file(input: Option<PathBuf>) -> ObjectFile {
 
     let mut lexer = lexer::init_lexer(&source.content);
     let syntax_tree = build_ast::build_ast(&mut lexer, &source_name);
-    let module = build_cfg::build_cfg(&syntax_tree, &source_name);
+    let module = build_cfg::build_cfg(&syntax_tree, &source_name, strict);
     codegen::codegen(module, &source_name)
 }

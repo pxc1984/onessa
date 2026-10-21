@@ -1,5 +1,6 @@
 use crate::lower::syntax::{child_nodes, identifier_text};
 use crate::lower::{Context, MODULE_BODY_NAME};
+use crate::types::Type;
 use crate::{BasicBlock, BlockId, Function, Terminator};
 use onessa_ast::{Lang, SyntaxKind};
 use onessa_core::bytecode::{Constant, Instruction};
@@ -26,6 +27,8 @@ pub(crate) struct FunctionBuilder<'c> {
     pub returns_value: bool,
     pub is_module_body: bool,
     locals: Vec<String>,
+    /// Strict mode types of the locals; `None` until the first assignment.
+    local_types: Vec<Option<Type>>,
     local_map: HashMap<String, u16>,
     blocks: Vec<BasicBlock>,
     current: BlockId,
@@ -35,6 +38,8 @@ pub(crate) struct FunctionBuilder<'c> {
     /// Number of `Исключение` blocks the current code is nested in.
     pub handler_depth: usize,
     temp_count: usize,
+    /// Join of the types of the returned values.
+    pub returned: Type,
 }
 
 impl<'c> FunctionBuilder<'c> {
@@ -44,6 +49,7 @@ impl<'c> FunctionBuilder<'c> {
             returns_value,
             is_module_body,
             locals: Vec::new(),
+            local_types: Vec::new(),
             local_map: HashMap::new(),
             blocks: vec![BasicBlock::default()],
             current: 0,
@@ -51,30 +57,39 @@ impl<'c> FunctionBuilder<'c> {
             try_depth: 0,
             handler_depth: 0,
             temp_count: 0,
+            returned: Type::Never,
         }
     }
 
-    pub fn lower_method(ctx: &mut Context, index: usize, node: &SyntaxNode<Lang>) -> Function {
+    /// Lowers a method; also returns the type of its result.
+    pub fn lower_method(
+        ctx: &mut Context,
+        index: usize,
+        node: &SyntaxNode<Lang>,
+    ) -> (Function, Type) {
         let signature = &ctx.signatures[index];
         let returns_value = signature.returns_value;
         let param_names: Vec<String> = signature.params.iter().map(|p| p.name.clone()).collect();
 
         let mut builder = FunctionBuilder::new(ctx, returns_value, false);
         for name in &param_names {
-            builder.declare_local(node, name);
+            if let Some(slot) = builder.declare_local(node, name) {
+                // Callers may pass anything.
+                builder.local_types[slot as usize] = Some(Type::Any);
+            }
         }
         if let Some(block) = child_nodes(node).find(|n| n.kind() == SyntaxKind::Block) {
             builder.lower_block(&block);
         }
         let end_line = builder.ctx.position(node.text_range().end()).0;
-        let mut function = builder.finish(end_line);
+        let (mut function, returned) = builder.finish(end_line);
 
         // `builder` borrowed the context until here.
         let signature = &ctx.signatures[index];
         function.name = signature.name.clone();
         function.export = signature.export;
         function.params = signature.params.clone();
-        function
+        (function, returned)
     }
 
     pub fn lower_module_body(ctx: &'c mut Context, statements: &[SyntaxNode<Lang>]) -> Function {
@@ -83,23 +98,30 @@ impl<'c> FunctionBuilder<'c> {
             builder.lower_statement(statement);
         }
         let end_line = builder.ctx.position(rowan::TextSize::from(u32::MAX)).0;
-        let mut function = builder.finish(end_line);
+        let (mut function, _) = builder.finish(end_line);
         function.name = MODULE_BODY_NAME.to_string();
         function
     }
 
     /// Adds the implicit `Возврат` at the end of the method body.
-    fn finish(mut self, line: u32) -> Function {
+    fn finish(mut self, line: u32) -> (Function, Type) {
+        let end = self.current;
         self.emit(Instruction::PushC(Constant::Undefined), line);
         self.terminate(Terminator::Return, line);
-        Function {
+        let function = Function {
             name: String::new(),
             returns_value: self.returns_value,
             export: false,
             params: Vec::new(),
             locals: self.locals,
             blocks: self.blocks,
+        };
+        // A function that can reach its end returns `Неопределено` there.
+        let mut returned = self.returned;
+        if function.reachable_blocks().contains(&end) {
+            returned = returned.join(Type::UNDEFINED);
         }
+        (function, returned)
     }
 
     // ===== Blocks =====
@@ -147,6 +169,7 @@ impl<'c> FunctionBuilder<'c> {
         }
         let slot = self.locals.len() as u16;
         self.locals.push(name);
+        self.local_types.push(None);
         self.local_map.insert(key, slot);
         Some(slot)
     }
@@ -184,6 +207,52 @@ impl<'c> FunctionBuilder<'c> {
             Slot::Local(i) => self.emit(Instruction::PushV(i), line),
             Slot::Global(i) => self.emit(Instruction::PushG(i), line),
         }
+    }
+
+    /// Strict mode type of a variable; `Произвольный` outside strict mode.
+    pub fn slot_type(&self, slot: Slot) -> Type {
+        if !self.ctx.strict {
+            return Type::Any;
+        }
+        let known = match slot {
+            Slot::Local(i) => self.local_types[i as usize],
+            Slot::Global(i) => self.ctx.global_types[i as usize],
+        };
+        known.unwrap_or(Type::Any)
+    }
+
+    /// Stores the value on top of the stack, of type `value`, into a variable. In strict mode
+    /// the first assignment fixes the type of the variable and later ones must match it:
+    /// a value of another known type is an error, one of an unknown type is checked at run
+    /// time.
+    pub fn store(&mut self, slot: Slot, value: Type, node: &SyntaxNode<Lang>, line: u32) {
+        if self.ctx.strict {
+            let variable = match slot {
+                Slot::Local(i) => &mut self.local_types[i as usize],
+                Slot::Global(i) => &mut self.ctx.global_types[i as usize],
+            };
+            match (*variable, value) {
+                (None, value) => *variable = value.of_new_variable(),
+                (Some(Type::Any), _) | (Some(_), Type::Never) => {}
+                (Some(Type::Known(expected)), Type::Any) => {
+                    self.emit(Instruction::CheckType(expected), line);
+                }
+                (Some(expected), value) if expected != value => {
+                    let name = match slot {
+                        Slot::Local(i) => self.locals[i as usize].clone(),
+                        Slot::Global(i) => self.ctx.globals[i as usize].clone(),
+                    };
+                    self.ctx.error(
+                        node,
+                        format!(
+                            "Type mismatch: variable {name} is {expected}, cannot assign {value}"
+                        ),
+                    );
+                }
+                _ => {}
+            }
+        }
+        self.emit_store(slot, line);
     }
 
     pub fn emit_store(&mut self, slot: Slot, line: u32) {

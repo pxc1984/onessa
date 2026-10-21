@@ -8,7 +8,7 @@ use std::path::Path;
 
 /// Runs an object file, or compiles and runs a source file. Returns the process exit code.
 pub fn run(args: RunArgs) -> i32 {
-    let object = load(&args.input);
+    let object = load(&args.input, args.strict);
     let stdout = std::io::stdout();
     let mut output = stdout.lock();
     let mut vm = match Vm::new(&object, &mut output) {
@@ -28,14 +28,14 @@ pub fn run(args: RunArgs) -> i32 {
 }
 
 pub fn disasm(args: DisasmArgs) -> i32 {
-    print!("{}", load(&args.input).disassemble());
+    print!("{}", load(&args.input, args.strict).disassemble());
     0
 }
 
-fn load(path: &Path) -> ObjectFile {
+fn load(path: &Path, strict: bool) -> ObjectFile {
     if !is_object_file(path) {
         debug!("{} is not an object file, compiling it", path.display());
-        return compile_file(Some(path.to_path_buf()));
+        return compile_file(Some(path.to_path_buf()), strict);
     }
     ObjectFile::from_file(path).unwrap_or_else(|err| {
         error!("Failed to load {}: {err}", path.display());

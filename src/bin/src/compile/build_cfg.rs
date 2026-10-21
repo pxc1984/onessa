@@ -5,10 +5,11 @@ use rowan::SyntaxNode;
 use std::process::exit;
 use std::time::Instant;
 
-pub fn build_cfg(syntax: &SyntaxNode<Lang>, source_name: &str) -> Module {
+pub fn build_cfg(syntax: &SyntaxNode<Lang>, source_name: &str, strict: bool) -> Module {
     info!("Building control flow graph");
     let start = Instant::now();
-    let module = onessa_cfg::build_cfg(syntax).unwrap_or_else(|diagnostics| {
+    let options = onessa_cfg::Options { strict };
+    let module = onessa_cfg::build_cfg_with(syntax, options).unwrap_or_else(|diagnostics| {
         for diagnostic in &diagnostics {
             error!(
                 "{source_name}:{}:{}: {}",

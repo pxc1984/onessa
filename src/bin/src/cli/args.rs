@@ -28,12 +28,21 @@ pub enum Command {
 #[derive(Debug, Clone, Parser)]
 pub struct DisasmArgs {
     pub input: PathBuf,
+
+    /// Compile a source file with static typing
+    #[clap(long)]
+    pub strict: bool,
 }
 
 #[derive(Debug, Clone, Parser)]
 pub struct RunArgs {
     /// Object file (or source file to compile first)
     pub input: PathBuf,
+
+    /// Compile a source file with static typing: a variable keeps the type of the value
+    /// first assigned to it
+    #[clap(long)]
+    pub strict: bool,
 
     // TODO: add ability to pass cli arguments to the command by placing -- after onessa run
     //      example: onessa run -- --help
@@ -48,6 +57,10 @@ pub struct CompileArgs {
     /// Output object file; defaults to the input path with the `.osc` extension
     #[clap(long, short)]
     pub output: Option<PathBuf>,
+
+    /// Static typing: a variable keeps the type of the value first assigned to it
+    #[clap(long)]
+    pub strict: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
