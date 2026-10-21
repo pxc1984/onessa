@@ -119,6 +119,15 @@ pub enum Op {
         op: Arith,
         slot: u16,
     },
+    /// `PUSH_C constant; ARITH_TO_V slot`
+    ArithToVC {
+        op: Arith,
+        slot: u16,
+        constant: u32,
+    },
+    /// `PUSH_V collection; <index>; <value>; INDEX_SET` where the expressions cannot change
+    /// the local: pops the value and the index.
+    IndexSetV(u16),
     /// `<cmp>; JUMP_IF_FALSE target`
     CmpJump {
         op: Cmp,
@@ -128,6 +137,20 @@ pub enum Op {
     CmpVJump {
         op: Cmp,
         slot: u16,
+        target: u32,
+    },
+    /// `PUSH_V lhs; PUSH_V rhs; <cmp>; JUMP_IF_FALSE target`
+    CmpVVJump {
+        op: Cmp,
+        lhs: u16,
+        rhs: u16,
+        target: u32,
+    },
+    /// `PUSH_V slot; PUSH_C constant; <cmp>; JUMP_IF_FALSE target`
+    CmpVCJump {
+        op: Cmp,
+        slot: u16,
+        constant: u32,
         target: u32,
     },
     /// `PUSH_C constant; <cmp>; JUMP_IF_FALSE target`
@@ -177,6 +200,28 @@ impl Op {
                 target,
             } => Op::CmpCJump {
                 op,
+                constant,
+                target: f(target),
+            },
+            Op::CmpVVJump {
+                op,
+                lhs,
+                rhs,
+                target,
+            } => Op::CmpVVJump {
+                op,
+                lhs,
+                rhs,
+                target: f(target),
+            },
+            Op::CmpVCJump {
+                op,
+                slot,
+                constant,
+                target,
+            } => Op::CmpVCJump {
+                op,
+                slot,
                 constant,
                 target: f(target),
             },
@@ -481,7 +526,8 @@ fn fuse(entries: Vec<Entry>) -> Vec<Entry> {
     fuse_indexing(out)
 }
 
-/// Indexing of a local collection by locals, on top of the fusions of [`fuse`].
+/// Fusions on top of those of [`fuse`]: indexing of a local collection by locals, compare
+/// and branch with locals, updates by a constant.
 fn fuse_indexing(entries: Vec<Entry>) -> Vec<Entry> {
     let mut out: Vec<Entry> = Vec::with_capacity(entries.len());
     let mut i = 0;
@@ -495,6 +541,35 @@ fn fuse_indexing(entries: Vec<Entry>) -> Vec<Entry> {
             (Op::PushV(collection), Some(Op::IndexGetV(index)), _) => {
                 (Op::IndexVV { collection, index }, 2)
             }
+            (Op::PushV(lhs), Some(Op::CmpVJump { op, slot, target }), _) => (
+                Op::CmpVVJump {
+                    op,
+                    lhs,
+                    rhs: slot,
+                    target,
+                },
+                2,
+            ),
+            (
+                Op::PushV(slot),
+                Some(Op::CmpCJump {
+                    op,
+                    constant,
+                    target,
+                }),
+                _,
+            ) => (
+                Op::CmpVCJump {
+                    op,
+                    slot,
+                    constant,
+                    target,
+                },
+                2,
+            ),
+            (Op::PushC(constant), Some(Op::ArithToV { op, slot }), _) => {
+                (Op::ArithToVC { op, slot, constant }, 2)
+            }
             (op, _, _) => (op, 1),
         };
         out.push(Entry { op, ..first });
@@ -506,10 +581,13 @@ fn fuse_indexing(entries: Vec<Entry>) -> Vec<Entry> {
 /// Longest expression considered by [`fuse_updates`].
 const MAX_UPDATE_LEN: usize = 64;
 
-/// `PUSH_V x; <expression>; <arith>; POP_V x` becomes `<expression>; ARITH_TO_V x`.
+/// Rewrites the code that pushes a local only to use it after a pure expression:
 ///
-/// The expression may only push, read and compute values, so it cannot change `x` and
-/// reading `x` after it gives the same value as before it.
+/// * `PUSH_V x; <expression>; <arith>; POP_V x` becomes `<expression>; ARITH_TO_V x`;
+/// * `PUSH_V a; <index>; <value>; INDEX_SET` becomes `<index>; <value>; INDEX_SET_V a`.
+///
+/// The expressions may only push, read and compute values, so they cannot change the local
+/// and reading it after them gives the same value as before them.
 fn fuse_updates(entries: Vec<Entry>) -> Vec<Entry> {
     let mut out = Vec::with_capacity(entries.len());
     let mut i = 0;
@@ -519,9 +597,22 @@ fn fuse_updates(entries: Vec<Entry>) -> Vec<Entry> {
             i += 1;
             continue;
         };
-        match update_end(&entries[i + 1..], slot) {
-            Some((len, op)) => {
-                // `entries[i + 1..=i + len]` is the expression, then `<arith>; POP_V`.
+        // The fused op and how many entries after the expression it replaces.
+        let found = pure_expression(&entries[i + 1..], |k, op, depth| match op {
+            Op::Arith(op) if depth == 1 && k > 0 => {
+                let store = entries.get(i + 1 + k + 1)?;
+                Some((store.op == Op::PopV(slot) && !store.is_target).then_some((
+                    k,
+                    Op::ArithToV { op, slot },
+                    2,
+                )))
+            }
+            Op::IndexSet if depth == 2 => Some(Some((k, Op::IndexSetV(slot), 1))),
+            _ => None,
+        });
+        match found {
+            Some((len, op, tail)) => {
+                // `entries[i + 1..=i + len]` is the expression.
                 let expression = &entries[i + 1..=i + len];
                 out.push(Entry {
                     offset: entries[i].offset,
@@ -529,13 +620,12 @@ fn fuse_updates(entries: Vec<Entry>) -> Vec<Entry> {
                     op: expression[0].op,
                 });
                 out.extend_from_slice(&expression[1..]);
-                let last = &entries[i + len + 1];
                 out.push(Entry {
-                    offset: last.offset,
+                    offset: entries[i + len + 1].offset,
                     is_target: false,
-                    op: Op::ArithToV { op, slot },
+                    op,
                 });
-                i += len + 3;
+                i += 1 + len + tail;
             }
             None => {
                 out.push(entries[i]);
@@ -546,24 +636,25 @@ fn fuse_updates(entries: Vec<Entry>) -> Vec<Entry> {
     out
 }
 
-/// Length of the expression that follows `PUSH_V slot` in an update of `slot`, and the
-/// arithmetic operation applied to it.
-fn update_end(rest: &[Entry], slot: u16) -> Option<(usize, Arith)> {
-    // Values pushed above the value of `slot`.
+/// Scans the pure expression code that follows a pushed local. `end` sees every op with the
+/// number of values above the local and decides: `None` to go on, `Some(None)` to give up,
+/// `Some(Some(result))` when the expression ends there.
+fn pure_expression<T>(
+    rest: &[Entry],
+    mut end: impl FnMut(usize, Op, usize) -> Option<Option<T>>,
+) -> Option<T> {
     let mut depth = 0usize;
     for (k, entry) in rest.iter().enumerate().take(MAX_UPDATE_LEN) {
         if entry.is_target {
             return None;
         }
+        if let Some(result) = end(k, entry.op, depth) {
+            return result;
+        }
         match entry.op {
             Op::PushC(_) | Op::PushV(_) | Op::PushG(_) => depth += 1,
             Op::Neg | Op::Not if depth >= 1 => {}
-            Op::IndexGet | Op::Cmp(_) if depth >= 2 => depth -= 1,
-            Op::Arith(_) if depth >= 2 => depth -= 1,
-            Op::Arith(op) if depth == 1 && k > 0 => {
-                let store = rest.get(k + 1)?;
-                return (store.op == Op::PopV(slot) && !store.is_target).then_some((k, op));
-            }
+            Op::IndexGet | Op::Cmp(_) | Op::Arith(_) if depth >= 2 => depth -= 1,
             _ => return None,
         }
     }
@@ -648,6 +739,15 @@ mod tests {
         ];
         assert_eq!(
             fused(&ops, &[]),
+            [Op::CmpVVJump {
+                op: Cmp::Lt,
+                lhs: 0,
+                rhs: 1,
+                target: 0
+            }]
+        );
+        assert_eq!(
+            fused(&ops, &[1]),
             [
                 Op::PushV(0),
                 Op::CmpVJump {
@@ -666,5 +766,51 @@ mod tests {
                 Op::JumpIfFalse(0)
             ]
         );
+    }
+
+    #[test]
+    fn stores_are_fused() {
+        // М[j + 1] = М[j]; j = j - 1;
+        let ops = [
+            Op::PushV(0),
+            Op::PushV(1),
+            Op::PushC(0),
+            Op::Arith(Arith::Add),
+            Op::PushV(0),
+            Op::PushV(1),
+            Op::IndexGet,
+            Op::IndexSet,
+            Op::PushV(1),
+            Op::PushC(0),
+            Op::Arith(Arith::Sub),
+            Op::PopV(1),
+        ];
+        assert_eq!(
+            fused(&ops, &[]),
+            [
+                Op::PushV(1),
+                Op::ArithC {
+                    op: Arith::Add,
+                    constant: 0
+                },
+                Op::IndexVV {
+                    collection: 0,
+                    index: 1
+                },
+                Op::IndexSetV(0),
+                Op::ArithToVC {
+                    op: Arith::Sub,
+                    slot: 1,
+                    constant: 0
+                },
+            ]
+        );
+        // A call in the value may change the collection variable.
+        let mut call = ops;
+        call[6] = Op::Call {
+            function: 0,
+            argc: 2,
+        };
+        assert_eq!(fused(&call, &[])[0], Op::PushV(0));
     }
 }

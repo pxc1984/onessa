@@ -170,6 +170,10 @@ impl<'a> Vm<'a> {
                     let lhs = top!();
                     *lhs = check!(arith(op, lhs, &constants[constant as usize]));
                 }
+                Op::ArithToVC { op, slot, constant } => {
+                    let lhs = &mut locals[base + slot as usize];
+                    *lhs = check!(arith(op, lhs, &constants[constant as usize]));
+                }
                 Op::ArithToV { op, slot } => {
                     let rhs = pop!();
                     let lhs = &mut locals[base + slot as usize];
@@ -197,6 +201,28 @@ impl<'a> Vm<'a> {
                 Op::CmpVJump { op, slot, target } => {
                     let lhs = pop!();
                     if !check!(compare(op, &lhs, &locals[base + slot as usize])) {
+                        pc = target as usize;
+                    }
+                }
+                Op::CmpVVJump {
+                    op,
+                    lhs,
+                    rhs,
+                    target,
+                } => {
+                    let lhs = &locals[base + lhs as usize];
+                    if !check!(compare(op, lhs, &locals[base + rhs as usize])) {
+                        pc = target as usize;
+                    }
+                }
+                Op::CmpVCJump {
+                    op,
+                    slot,
+                    constant,
+                    target,
+                } => {
+                    let lhs = &locals[base + slot as usize];
+                    if !check!(compare(op, lhs, &constants[constant as usize])) {
                         pc = target as usize;
                     }
                 }
@@ -365,6 +391,15 @@ impl<'a> Vm<'a> {
                     let collection = top!();
                     let index = &constants[constant as usize];
                     *collection = check!(objects::index_get(collection, index));
+                }
+                Op::IndexSetV(slot) => {
+                    let value = pop!();
+                    let index = pop!();
+                    check!(objects::index_set(
+                        &locals[base + slot as usize],
+                        &index,
+                        value
+                    ));
                 }
                 Op::IndexSet => {
                     let value = pop!();

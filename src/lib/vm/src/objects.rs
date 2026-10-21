@@ -77,7 +77,19 @@ fn index_get_slow(collection: &Value, index: &Value) -> Result<Value, String> {
 }
 
 /// `collection[index] = value`
+#[inline(always)]
 pub fn index_set(collection: &Value, index: &Value, value: Value) -> Result<(), String> {
+    if let (Value::Array(items), Value::Int(i)) = (collection, index) {
+        if let Some(item) = items.borrow_mut().get_mut(*i as usize) {
+            *item = value;
+            return Ok(());
+        }
+    }
+    index_set_slow(collection, index, value)
+}
+
+#[inline(never)]
+fn index_set_slow(collection: &Value, index: &Value, value: Value) -> Result<(), String> {
     match collection {
         Value::Array(items) => {
             let mut items = items.borrow_mut();
