@@ -21,6 +21,8 @@ impl<'a> ParseSession<'a> {
             self.parse_return();
         } else if self.peek_is(&Token::Break) {
             self.parse_break();
+        } else if self.peek_is(&Token::Raise) {
+            self.parse_raise();
         } else if self.peek_is(&Token::Continue) {
             self.parse_continue();
         } else if self.peek_is(&Token::Semicolon) {

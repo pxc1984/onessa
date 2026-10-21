@@ -2,7 +2,7 @@ use chrono::{DateTime, TimeZone, Utc};
 use logos::{Lexer, Logos};
 
 #[derive(Logos, Debug, PartialEq, Clone, PartialOrd)]
-#[logos(skip(r"[ \t\n\f]+"))]
+#[logos(skip(r"[ \t\r\n\f\u{FEFF}]+"))]
 #[repr(u16)]
 pub enum Token {
     #[regex(r"//[^\n]*", allow_greedy=true, callback=logos::skip)]
@@ -39,6 +39,9 @@ pub enum Token {
 
     #[token("/")]
     Slash,
+
+    #[token("%")]
+    Percent,
 
     #[token(";")]
     Semicolon,
@@ -83,6 +86,9 @@ pub enum Token {
 
     #[regex(r"(?i)для|for", priority = 2)]
     For,
+
+    #[regex(r"(?i)по|to", priority = 2)]
+    To,
 
     #[regex(r"(?i)каждого|each", priority = 2)]
     Each,
@@ -210,7 +216,7 @@ pub enum Token {
     New,
 
     // 5. Литералы
-    #[regex(r"-?\d+(\.\d+)?", priority = 3, callback = parse_number)]
+    #[regex(r"\d+(\.\d+)?", priority = 3, callback = parse_number)]
     NumberLiteral(f64),
 
     #[regex(r#""([^"\\]|\\["\\nrt\t])*""#, priority = 3, callback = parse_string)]
@@ -288,7 +294,7 @@ fn parse_date(lex: &mut Lexer<Token>) -> Option<DateTime<Utc>> {
             Utc.with_ymd_and_hms(year, month, day, hour, minute, second)
                 .single()
         }
-        _ => panic!("Invalid date format: {}", date_str),
+        _ => None,
     }
 }
 
@@ -383,7 +389,7 @@ mod tests {
     #[test]
     fn test_operators_and_punctuation() {
         assert_tokens(
-            "<> <= >= = < > + - * / ; , ( )",
+            "<> <= >= = < > + - * / % ; , ( )",
             &[
                 Token::Ne,
                 Token::Le,
@@ -395,6 +401,7 @@ mod tests {
                 Token::Minus,
                 Token::Star,
                 Token::Slash,
+                Token::Percent,
                 Token::Semicolon,
                 Token::Comma,
                 Token::LParen,
@@ -468,10 +475,10 @@ mod tests {
     #[test]
     fn test_literals_number_string_date() {
         assert_tokens(
-            "0 -1 12.5 \"строка\" \"строка\\n\\t\\\"ок\\\"\" '20240101' '19990101000000'",
+            "0 1 12.5 \"строка\" \"строка\\n\\t\\\"ок\\\"\" '20240101' '19990101000000'",
             &[
                 Token::NumberLiteral(0f64),
-                Token::NumberLiteral(-1f64),
+                Token::NumberLiteral(1f64),
                 Token::NumberLiteral(12.5f64),
                 Token::StringLiteral("строка".to_string()),
                 Token::StringLiteral("строка\n\t\"ок\"".to_string()),
@@ -659,6 +666,45 @@ mod tests {
                 Token::EndTry,
             ],
         );
+    }
+
+    #[test]
+    fn test_for_to_and_negative_numbers() {
+        assert_tokens(
+            "Для Сч = 1 По Н-1 Цикл for i = 1 to 2 do",
+            &[
+                Token::For,
+                Token::Identifier("Сч".to_string()),
+                Token::Eq,
+                Token::NumberLiteral(1f64),
+                Token::To,
+                Token::Identifier("Н".to_string()),
+                Token::Minus,
+                Token::NumberLiteral(1f64),
+                Token::Do,
+                Token::For,
+                Token::Identifier("i".to_string()),
+                Token::Eq,
+                Token::NumberLiteral(1f64),
+                Token::To,
+                Token::NumberLiteral(2f64),
+                Token::Do,
+            ],
+        );
+    }
+
+    #[test]
+    fn test_crlf_and_bom() {
+        assert_tokens(
+            "\u{FEFF}Если\r\nТогда\r\n",
+            &[Token::If, Token::Then],
+        );
+    }
+
+    #[test]
+    fn test_invalid_date_is_error() {
+        let mut lex = Token::lexer("'123456789'");
+        assert!(matches!(lex.next(), Some(Err(_))));
     }
 
     #[test]

@@ -20,3 +20,6 @@ pub fn build_ast<'a>(lexer: &'a mut logos::Lexer<'a, Token>) -> SyntaxTree {
         errors: session.errors,
     }
 }
+
+#[cfg(test)]
+mod tests;

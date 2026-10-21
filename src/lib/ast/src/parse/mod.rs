@@ -13,6 +13,7 @@ mod identifier;
 mod r#if;
 mod infix_binding_power;
 mod literal;
+mod parameters;
 mod position;
 mod primary;
 mod procedure;

@@ -3,17 +3,17 @@ use crate::SyntaxKind;
 use onessa_lexer::Token;
 
 impl<'a> ParseSession<'a> {
+    /// `Перем А, Б Экспорт;`
     pub fn parse_var_decl(&mut self) {
         self.builder
             .start_node(SyntaxKind::VariableDeclaration.into());
         self.expect_token(&Token::Var);
 
         loop {
-            if let Some(Token::Identifier(_)) = self.current.clone() {
+            if let Some(Token::Identifier(_)) = self.current {
                 self.parse_identifier();
-                if self.peek_is(&Token::Eq) {
+                if self.peek_is(&Token::Export) {
                     self.token_current();
-                    self.parse_expression();
                 }
             } else {
                 self.error_at_current(format!(

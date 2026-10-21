@@ -1,8 +1,6 @@
-use crate::compile::ast::{Lang, Parser};
-use crate::compile::tokens::Token;
 use log::{debug, error, info};
 use logos::Lexer;
-use rowan::SyntaxNode;
+use onessa_lexer::Token;
 
 pub fn lexer_dump(lexer: &Lexer<Token>) {
     let lexer = lexer.clone();
