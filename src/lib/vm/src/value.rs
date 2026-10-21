@@ -18,13 +18,19 @@ pub enum Value {
     /// Массив: a 0-based ordered collection shared by reference, like every 1C object.
     Array(Rc<RefCell<Vec<Value>>>),
     /// Structure (Структура) - key-value pairs with string keys
-    Structure(HashMap<String, Value>),
+    Structure(Rc<RefCell<HashMap<String, Value>>>),
     /// Object - instance with properties and methods
-    Object {
-        type_name: Rc<str>,
-        properties: HashMap<String, Value>,
-        methods: HashMap<String, u32>, // method name -> function index
-    },
+    Object(Rc<RefCell<Object>>),
+}
+
+/// Objects live behind a pointer so that `Value` stays small (24 bytes): every stack and local
+/// slot is a `Value`.
+#[derive(Debug)]
+pub struct Object {
+    pub type_name: Rc<str>,
+    pub properties: HashMap<String, Value>,
+    /// Method name -> function index.
+    pub methods: HashMap<String, u32>,
 }
 
 impl PartialEq for Value {
@@ -37,10 +43,8 @@ impl PartialEq for Value {
             (Value::String(a), Value::String(b)) => a == b,
             (Value::Date(a), Value::Date(b)) => a == b,
             (Value::Array(a), Value::Array(b)) => Rc::ptr_eq(a, b),
-            (Value::Structure(a), Value::Structure(b)) => a == b,
-            (Value::Object { type_name: tn1, properties: p1, .. }, Value::Object { type_name: tn2, properties: p2, .. }) => {
-                tn1 == tn2 && p1 == p2
-            }
+            (Value::Structure(a), Value::Structure(b)) => Rc::ptr_eq(a, b),
+            (Value::Object(a), Value::Object(b)) => Rc::ptr_eq(a, b),
             _ => false,
         }
     }
@@ -69,8 +73,8 @@ impl Value {
             .expect("valid date")
     }
 
-    pub fn type_name(&self) -> &str {
-        match self {
+    pub fn type_name(&self) -> Rc<str> {
+        Rc::from(match self {
             Value::Undefined => "Неопределено",
             Value::Null => "Null",
             Value::Boolean(_) => "Булево",
@@ -79,8 +83,8 @@ impl Value {
             Value::Date(_) => "Дата",
             Value::Array(_) => "Массив",
             Value::Structure(_) => "Структура",
-            Value::Object { type_name, .. } => type_name,
-        }
+            Value::Object(object) => return object.borrow().type_name.clone(),
+        })
     }
 
     /// Conversion used by conditions, `Не` and `Булево()`.
@@ -140,8 +144,8 @@ impl Value {
             Value::String(s) => !s.trim().is_empty(),
             Value::Date(d) => *d != Self::empty_date(),
             Value::Array(arr) => !arr.borrow().is_empty(),
-            Value::Structure(map) => !map.is_empty(),
-            Value::Object { properties, .. } => !properties.is_empty(),
+            Value::Structure(map) => !map.borrow().is_empty(),
+            Value::Object(object) => !object.borrow().properties.is_empty(),
         }
     }
 }
@@ -166,12 +170,8 @@ impl Display for Value {
                 d.second()
             ),
             Value::Array(_) => write!(f, "Массив"),
-            Value::Structure(map) => {
-                write!(f, "Структура{{{}}}", map.len())
-            }
-            Value::Object { type_name, .. } => {
-                write!(f, "Объект({})", type_name)
-            }
+            Value::Structure(_) => write!(f, "Структура"),
+            Value::Object(object) => write!(f, "{}", object.borrow().type_name),
         }
     }
 }
@@ -211,8 +211,9 @@ mod tests {
         assert_ne!(arr, Value::array(vec![Value::Number(Decimal::ONE)]));
         let mut map = HashMap::new();
         map.insert("key".to_string(), Value::Number(Decimal::ONE));
-        let structure = Value::Structure(map);
-        assert_eq!(structure.to_string(), "Структура{1}");
+        let structure = Value::Structure(Rc::new(RefCell::new(map)));
+        assert_eq!(structure.to_string(), "Структура");
+        assert_eq!(std::mem::size_of::<Value>(), 24);
     }
 
     #[test]
