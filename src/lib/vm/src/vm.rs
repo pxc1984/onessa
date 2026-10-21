@@ -1,21 +1,23 @@
 use crate::error::{LoadError, RuntimeError};
-use crate::native::{self, Native, NativeContext};
+use crate::native::{self, NativeContext};
 use crate::objects;
-use crate::value::Value;
-use onessa_core::bytecode::{Constant, Instruction};
-use onessa_core::object::{FunctionEntry, ObjectFile};
+use crate::program::{Op, Program};
+use crate::value::{Value, NOT_A_NUMBER};
+use onessa_core::object::{DebugInfo, ObjectFile};
 use rust_decimal::Decimal;
 use std::cmp::Ordering;
-use std::collections::HashMap;
 use std::io::Write;
 use std::rc::Rc;
 
 /// Maximum call depth before `Переполнение стека` is raised.
 const MAX_CALL_DEPTH: usize = 10_000;
 
+const OVERFLOW: &str = "Переполнение при выполнении арифметической операции";
+const UNDERFLOW: &str = "internal error: operand stack underflow";
+
 struct Frame {
     function: u32,
-    /// Absolute offset of the next instruction in the code section.
+    /// Index of the next op. Only up to date while the frame is not the running one.
     pc: usize,
     /// Index of the first local of this frame in `Vm::locals`.
     locals_base: usize,
@@ -31,20 +33,16 @@ struct Handler {
     target: usize,
 }
 
-/// Outcome of executing one instruction.
-enum Step {
-    Continue,
-    Finished,
+/// An exception raised by the op at `pc`.
+struct Fault {
+    message: String,
+    pc: usize,
 }
 
 pub struct Vm<'a> {
-    object: &'a ObjectFile,
+    program: Program,
+    debug_info: Option<&'a DebugInfo>,
     output: &'a mut dyn Write,
-    /// Native function and string constant of every string table index used by the code.
-    natives: HashMap<u32, Native>,
-    strings: Vec<Rc<str>>,
-    /// Lowercased strings, for case-insensitive type and method names.
-    lowercase: Vec<Box<str>>,
     stack: Vec<Value>,
     locals: Vec<Value>,
     globals: Vec<Value>,
@@ -59,20 +57,15 @@ pub struct Vm<'a> {
 impl<'a> Vm<'a> {
     /// Validates the object file and prepares it for execution. `Сообщить` writes to `output`.
     pub fn new(object: &'a ObjectFile, output: &'a mut dyn Write) -> Result<Self, LoadError> {
-        let strings: Vec<Rc<str>> = (0..object.string_table.len() as u32)
-            .map(|idx| Rc::from(&*object.string_table.get(idx).unwrap_or_default()))
-            .collect();
-        let natives = validate(object, &strings)?;
-        let lowercase = strings.iter().map(|s| s.to_lowercase().into()).collect();
+        let program = Program::load(object)?;
+        let globals = vec![Value::Undefined; program.global_count];
         Ok(Self {
-            object,
+            program,
+            debug_info: object.debug_info.as_ref(),
             output,
-            natives,
-            strings,
-            lowercase,
             stack: Vec::new(),
             locals: Vec::new(),
-            globals: vec![Value::Undefined; object.function_table.global_count as usize],
+            globals,
             frames: Vec::new(),
             handlers: Vec::new(),
             out_params: Vec::new(),
@@ -82,393 +75,336 @@ impl<'a> Vm<'a> {
 
     /// Executes the module body.
     pub fn run(&mut self) -> Result<(), RuntimeError> {
-        let entry = self.object.function_table.entry;
-        self.enter(entry, Vec::new());
-        loop {
-            let offset = self.frames.last().map(|f| f.pc).unwrap_or_default();
-            let step = match self.step() {
-                Ok(step) => step,
-                Err(message) => self.raise(message, offset)?,
-            };
-            if let Step::Finished = step {
-                return Ok(());
-            }
-        }
-    }
-
-    fn function(&self, idx: u32) -> &'a FunctionEntry {
-        &self.object.function_table.functions[idx as usize]
-    }
-
-    fn enter(&mut self, function: u32, args: Vec<Value>) {
-        let entry = self.function(function);
-        let locals_base = self.locals.len();
-        self.locals.extend(args);
-        self.locals
-            .resize(locals_base + entry.local_count as usize, Value::Undefined);
+        let entry = &self.program.functions[self.program.entry as usize];
+        self.locals.resize(entry.local_count, Value::Undefined);
         self.frames.push(Frame {
-            function,
-            pc: entry.code_offset as usize,
-            locals_base,
-            stack_base: self.stack.len(),
+            function: self.program.entry,
+            pc: entry.entry,
+            locals_base: 0,
+            stack_base: 0,
         });
-    }
-
-    fn pop(&mut self) -> Result<Value, String> {
-        self.stack
-            .pop()
-            .ok_or_else(|| "internal error: operand stack underflow".to_string())
-    }
-
-    /// Pops the top `count` values, in the order they were pushed.
-    fn pop_n(&mut self, count: u8) -> Result<Vec<Value>, String> {
-        let split = self
-            .stack
-            .len()
-            .checked_sub(count as usize)
-            .ok_or("internal error: operand stack underflow")?;
-        Ok(self.stack.split_off(split))
-    }
-
-    fn pop2(&mut self) -> Result<(Value, Value), String> {
-        let rhs = self.pop()?;
-        let lhs = self.pop()?;
-        Ok((lhs, rhs))
-    }
-
-    fn constant(&self, constant: Constant) -> Value {
-        match constant {
-            Constant::Undefined => Value::Undefined,
-            Constant::Null => Value::Null,
-            Constant::Boolean(b) => Value::Boolean(b),
-            Constant::Number(n) => Value::Number(n),
-            Constant::String(idx) => Value::String(self.strings[idx as usize].clone()),
-            Constant::Date(secs) => {
-                Value::date_from_timestamp(secs).unwrap_or(Value::Date(Value::empty_date()))
+        loop {
+            match self.execute() {
+                Ok(()) => return Ok(()),
+                Err(fault) => self.raise(fault)?,
             }
         }
     }
 
-    /// Executes the instruction at the current pc. An `Err` is an exception message.
-    fn step(&mut self) -> Result<Step, String> {
-        let frame = self.frames.last_mut().expect("step without a frame");
-        let code = &self.object.code_section.code;
-        let instruction = Instruction::decode(code, &mut frame.pc).map_err(|e| e.to_string())?;
-        let locals_base = frame.locals_base;
+    /// Runs the top frame until the entry function returns or an exception is raised.
+    ///
+    /// The program counter and the locals base of the running frame are kept in local
+    /// variables and written back to the frame only on calls.
+    fn execute(&mut self) -> Result<(), Fault> {
+        let ops = &self.program.ops[..];
+        let constants = &self.program.constants[..];
+        let functions = &self.program.functions[..];
+        let stack = &mut self.stack;
+        let locals = &mut self.locals;
+        let globals = &mut self.globals;
+        let frames = &mut self.frames;
 
-        match instruction {
-            Instruction::PushC(constant) => {
-                let value = self.constant(constant);
-                self.stack.push(value);
-            }
-            Instruction::PushV(i) => {
-                let value = self.locals[locals_base + i as usize].clone();
-                self.stack.push(value);
-            }
-            Instruction::PopV(i) => {
-                let value = self.pop()?;
-                self.locals[locals_base + i as usize] = value;
-            }
-            Instruction::PushG(i) => self.stack.push(self.globals[i as usize].clone()),
-            Instruction::PopG(i) => {
-                let value = self.pop()?;
-                self.globals[i as usize] = value;
-            }
-            Instruction::Pop => {
-                self.pop()?;
-            }
-            Instruction::Dup => {
-                let value = self
-                    .stack
-                    .last()
-                    .cloned()
-                    .ok_or("internal error: DUP on empty stack")?;
-                self.stack.push(value);
-            }
-            Instruction::Add => {
-                let (lhs, rhs) = self.pop2()?;
-                self.stack.push(add(lhs, rhs)?);
-            }
-            Instruction::Sub => {
-                let (lhs, rhs) = self.pop2()?;
-                self.stack.push(sub(lhs, rhs)?);
-            }
-            Instruction::Mul => {
-                let (lhs, rhs) = self.pop2()?;
-                self.stack
-                    .push(Value::Number(lhs.to_number()? * rhs.to_number()?));
-            }
-            Instruction::Div | Instruction::Mod => {
-                let (lhs, rhs) = self.pop2()?;
-                let (lhs, rhs) = (lhs.to_number()?, rhs.to_number()?);
-                if rhs == Decimal::ZERO {
-                    return Err("Деление на 0".to_string());
+        let frame = frames.last().expect("execute without a frame");
+        let mut pc = frame.pc;
+        let mut base = frame.locals_base;
+
+        // Evaluates a `Result<_, String>`, raising the error as an exception of the current op.
+        macro_rules! check {
+            ($result:expr) => {
+                match $result {
+                    Ok(value) => value,
+                    Err(message) => {
+                        return Err(Fault {
+                            message: message.into(),
+                            pc: pc - 1,
+                        })
+                    }
                 }
-                let result = if instruction == Instruction::Div {
-                    lhs / rhs
-                } else {
-                    lhs % rhs
+            };
+        }
+        macro_rules! pop {
+            () => {
+                check!(stack.pop().ok_or(UNDERFLOW))
+            };
+        }
+        macro_rules! top {
+            () => {
+                check!(stack.last_mut().ok_or(UNDERFLOW))
+            };
+        }
+        // Applies an arithmetic operation in place: the result replaces the left operand.
+        // Integers are computed in `i64` and fall back to `Decimal` on overflow.
+        macro_rules! arithmetic {
+            ($int:ident, $slow:expr) => {{
+                let rhs = pop!();
+                let lhs = top!();
+                *lhs = match (&*lhs, &rhs) {
+                    (Value::Int(a), Value::Int(b)) => match a.$int(*b) {
+                        Some(n) => Value::Int(n),
+                        None => check!($slow(lhs.clone(), rhs)),
+                    },
+                    _ => check!($slow(std::mem::replace(lhs, Value::Undefined), rhs)),
                 };
-                self.stack.push(Value::Number(result));
-            }
-            Instruction::Neg => {
-                let value = self.pop()?.to_number()?;
-                self.stack.push(Value::Number(-value));
-            }
-            Instruction::Eq | Instruction::Ne => {
-                let (lhs, rhs) = self.pop2()?;
-                let equal = lhs == rhs;
-                self.stack
-                    .push(Value::Boolean(equal == (instruction == Instruction::Eq)));
-            }
-            Instruction::Lt | Instruction::Le | Instruction::Gt | Instruction::Ge => {
-                let (lhs, rhs) = self.pop2()?;
-                let ordering = lhs.compare(&rhs)?;
-                let result = match instruction {
-                    Instruction::Lt => ordering == Ordering::Less,
-                    Instruction::Le => ordering != Ordering::Greater,
-                    Instruction::Gt => ordering == Ordering::Greater,
-                    _ => ordering != Ordering::Less,
+            }};
+        }
+        macro_rules! compare {
+            (|$ordering:ident| $test:expr) => {{
+                let rhs = pop!();
+                let lhs = top!();
+                let $ordering = match (&*lhs, &rhs) {
+                    (Value::Int(a), Value::Int(b)) => a.cmp(b),
+                    _ => check!(lhs.compare(&rhs)),
                 };
-                self.stack.push(Value::Boolean(result));
-            }
-            Instruction::Not => {
-                let value = self.pop()?.to_boolean()?;
-                self.stack.push(Value::Boolean(!value));
-            }
-            Instruction::Jump(target) => self.jump(target),
-            Instruction::JumpIfFalse(target) => {
-                if !self.pop()?.to_boolean()? {
-                    self.jump(target);
+                *lhs = Value::Boolean($test);
+            }};
+        }
+
+        loop {
+            let op = ops[pc];
+            pc += 1;
+            match op {
+                Op::PushC(i) => stack.push(constants[i as usize].clone()),
+                Op::PushV(i) => stack.push(locals[base + i as usize].clone()),
+                Op::PopV(i) => locals[base + i as usize] = pop!(),
+                Op::PushG(i) => stack.push(globals[i as usize].clone()),
+                Op::PopG(i) => globals[i as usize] = pop!(),
+                Op::Pop => {
+                    pop!();
+                }
+                Op::Dup => {
+                    let value = top!().clone();
+                    stack.push(value);
+                }
+                Op::Add => arithmetic!(checked_add, add),
+                Op::Sub => arithmetic!(checked_sub, sub),
+                Op::Mul => arithmetic!(checked_mul, mul),
+                Op::Div => {
+                    let rhs = pop!();
+                    let lhs = top!();
+                    *lhs = check!(div(std::mem::replace(lhs, Value::Undefined), rhs));
+                }
+                // `checked_rem` is `None` for a zero divisor, which `rem` then reports.
+                Op::Mod => arithmetic!(checked_rem, rem),
+                Op::Neg => {
+                    let value = top!();
+                    *value = match value {
+                        Value::Int(n) if *n != i64::MIN => Value::Int(-*n),
+                        _ => Value::number(-check!(value.to_number())),
+                    };
+                }
+                Op::Eq | Op::Ne => {
+                    let rhs = pop!();
+                    let lhs = top!();
+                    let equal = *lhs == rhs;
+                    *lhs = Value::Boolean(equal == (op == Op::Eq));
+                }
+                Op::Lt => compare!(|o| o == Ordering::Less),
+                Op::Le => compare!(|o| o != Ordering::Greater),
+                Op::Gt => compare!(|o| o == Ordering::Greater),
+                Op::Ge => compare!(|o| o != Ordering::Less),
+                Op::Not => {
+                    let value = top!();
+                    *value = Value::Boolean(!check!(value.to_boolean()));
+                }
+                Op::Jump(target) => pc = target as usize,
+                Op::JumpIfFalse(target) => {
+                    let condition = match pop!() {
+                        Value::Boolean(b) => b,
+                        value => check!(value.to_boolean()),
+                    };
+                    if !condition {
+                        pc = target as usize;
+                    }
+                }
+                Op::Call { function, argc } => {
+                    if frames.len() >= MAX_CALL_DEPTH {
+                        check!(Err("Переполнение стека"));
+                    }
+                    let callee = &functions[function as usize];
+                    let split = check!(stack.len().checked_sub(argc as usize).ok_or(UNDERFLOW));
+                    frames.last_mut().expect("running frame").pc = pc;
+                    base = locals.len();
+                    locals.extend(stack.drain(split..));
+                    locals.resize(base + callee.local_count, Value::Undefined);
+                    frames.push(Frame {
+                        function,
+                        pc: callee.entry,
+                        locals_base: base,
+                        stack_base: stack.len(),
+                    });
+                    pc = callee.entry;
+                }
+                Op::CallNative { native, argc } => {
+                    let split = check!(stack.len().checked_sub(argc as usize).ok_or(UNDERFLOW));
+                    let ctx = NativeContext {
+                        output: &mut *self.output,
+                        error_description: self.error_description.as_deref(),
+                    };
+                    let result = check!(native::call(native, ctx, &stack[split..]));
+                    stack.truncate(split);
+                    stack.push(result);
+                }
+                Op::PushOut(n) => {
+                    let value = check!(self
+                        .out_params
+                        .get(n as usize)
+                        .cloned()
+                        .ok_or("internal error: PUSH_OUT without a preceding call"));
+                    stack.push(value);
+                }
+                Op::Return => {
+                    let value = pop!();
+                    let frame = frames.pop().expect("return without a frame");
+                    let param_count = functions[frame.function as usize].param_count;
+                    self.out_params.clear();
+                    self.out_params
+                        .extend(locals.drain(frame.locals_base..).take(param_count));
+                    stack.truncate(frame.stack_base);
+                    if !self.handlers.is_empty() {
+                        let depth = frames.len();
+                        self.handlers.retain(|h| h.frame_depth <= depth);
+                    }
+                    let Some(caller) = frames.last() else {
+                        return Ok(());
+                    };
+                    pc = caller.pc;
+                    base = caller.locals_base;
+                    stack.push(value);
+                }
+                Op::TryBegin(target) => self.handlers.push(Handler {
+                    frame_depth: frames.len(),
+                    stack_height: stack.len(),
+                    target: target as usize,
+                }),
+                Op::TryEnd => {
+                    self.handlers.pop();
+                }
+                Op::Raise => {
+                    let message = pop!().to_string();
+                    check!(Err(message));
+                }
+                Op::ReRaise => {
+                    let message = self.error_description.as_deref().unwrap_or_default();
+                    check!(Err(message.to_string()));
+                }
+                Op::New { type_name, argc } => {
+                    let split = check!(stack.len().checked_sub(argc as usize).ok_or(UNDERFLOW));
+                    let value = check!(objects::construct(
+                        &self.program.lowercase[type_name as usize],
+                        &self.program.strings[type_name as usize],
+                        &stack[split..],
+                    ));
+                    stack.truncate(split);
+                    stack.push(value);
+                }
+                Op::IndexGet => {
+                    let index = pop!();
+                    let collection = top!();
+                    *collection = check!(objects::index_get(collection, &index));
+                }
+                Op::IndexSet => {
+                    let value = pop!();
+                    let index = pop!();
+                    let collection = pop!();
+                    check!(objects::index_set(&collection, &index, value));
+                }
+                Op::CallMethod { name, argc } => {
+                    let split = check!(stack.len().checked_sub(argc as usize + 1).ok_or(UNDERFLOW));
+                    let result = check!(objects::call_method(
+                        &stack[split],
+                        &self.program.lowercase[name as usize],
+                        &self.program.strings[name as usize],
+                        &stack[split + 1..],
+                    ));
+                    stack.truncate(split);
+                    stack.push(result);
                 }
             }
-            Instruction::Call { function, argc } => {
-                if self.frames.len() >= MAX_CALL_DEPTH {
-                    return Err("Переполнение стека".to_string());
-                }
-                let args = self.pop_n(argc)?;
-                self.enter(function, args);
-            }
-            Instruction::CallNative { name, argc } => {
-                let args = self.pop_n(argc)?;
-                let ctx = NativeContext {
-                    output: &mut *self.output,
-                    error_description: self.error_description.as_deref(),
-                };
-                let result = native::call(self.natives[&name], ctx, &args)?;
-                self.stack.push(result);
-            }
-            Instruction::PushOut(n) => {
-                let value = self
-                    .out_params
-                    .get(n as usize)
-                    .cloned()
-                    .ok_or("internal error: PUSH_OUT without a preceding call")?;
-                self.stack.push(value);
-            }
-            Instruction::Return => return self.return_from_frame(),
-            Instruction::TryBegin(target) => self.handlers.push(Handler {
-                frame_depth: self.frames.len(),
-                stack_height: self.stack.len(),
-                target: target as usize,
-            }),
-            Instruction::TryEnd => {
-                self.handlers.pop();
-            }
-            Instruction::Raise => {
-                let message = self.pop()?.to_string();
-                return Err(message);
-            }
-            Instruction::ReRaise => {
-                let message = self.error_description.as_deref().unwrap_or_default();
-                return Err(message.to_string());
-            }
-            Instruction::New { type_name, argc } => {
-                let args = self.pop_n(argc)?;
-                let (lower, name) = (
-                    &self.lowercase[type_name as usize],
-                    &self.strings[type_name as usize],
-                );
-                let value = objects::construct(lower, name, &args)?;
-                self.stack.push(value);
-            }
-            Instruction::IndexGet => {
-                let (collection, index) = self.pop2()?;
-                self.stack.push(objects::index_get(&collection, &index)?);
-            }
-            Instruction::IndexSet => {
-                let value = self.pop()?;
-                let (collection, index) = self.pop2()?;
-                objects::index_set(&collection, &index, value)?;
-            }
-            Instruction::CallMethod { name, argc } => {
-                let args = self.pop_n(argc)?;
-                let object = self.pop()?;
-                let (lower, display) =
-                    (&self.lowercase[name as usize], &self.strings[name as usize]);
-                let result = objects::call_method(&object, lower, display, &args)?;
-                self.stack.push(result);
-            }
         }
-        Ok(Step::Continue)
-    }
-
-    fn jump(&mut self, target: u32) {
-        if let Some(frame) = self.frames.last_mut() {
-            frame.pc = target as usize;
-        }
-    }
-
-    fn return_from_frame(&mut self) -> Result<Step, String> {
-        let value = self.pop()?;
-        let frame = self.frames.pop().expect("return without a frame");
-        let param_count = self.function(frame.function).param_count as usize;
-
-        self.out_params.clear();
-        self.out_params
-            .extend(self.locals.drain(frame.locals_base..).take(param_count));
-        self.stack.truncate(frame.stack_base);
-        let depth = self.frames.len();
-        self.handlers.retain(|h| h.frame_depth <= depth);
-
-        if self.frames.is_empty() {
-            return Ok(Step::Finished);
-        }
-        self.stack.push(value);
-        Ok(Step::Continue)
     }
 
     /// Transfers control to the innermost handler, or fails with the exception if there is
-    /// none. `offset` is the instruction that raised it, used for the error location.
-    fn raise(&mut self, message: String, offset: usize) -> Result<Step, RuntimeError> {
+    /// none.
+    fn raise(&mut self, fault: Fault) -> Result<(), RuntimeError> {
         let Some(handler) = self.handlers.pop() else {
-            let debug = self.object.debug_info.as_ref();
+            let offset = self.program.op_offsets[fault.pc];
+            let debug = self.debug_info;
             return Err(RuntimeError {
-                message,
-                source: debug.map(|d| self.strings[d.source_name as usize].to_string()),
-                line: debug.and_then(|d| d.line_at(offset as u32)),
+                message: fault.message,
+                source: debug.map(|d| self.program.strings[d.source_name as usize].to_string()),
+                line: debug.and_then(|d| d.line_at(offset)),
             });
         };
 
-        self.error_description = Some(message.into());
+        self.error_description = Some(fault.message.into());
         while self.frames.len() > handler.frame_depth {
             let frame = self.frames.pop().expect("handler frame exists");
             self.locals.truncate(frame.locals_base);
         }
         self.stack.truncate(handler.stack_height);
-        self.jump(handler.target as u32);
-        Ok(Step::Continue)
+        if let Some(frame) = self.frames.last_mut() {
+            frame.pc = handler.target;
+        }
+        Ok(())
     }
+}
+
+fn number(result: Option<Decimal>) -> Result<Value, &'static str> {
+    result.map(Value::number).ok_or(OVERFLOW)
+}
+
+fn divide(lhs: Decimal, rhs: Decimal, remainder: bool) -> Result<Value, &'static str> {
+    if rhs.is_zero() {
+        return Err("Деление на 0");
+    }
+    number(if remainder {
+        lhs.checked_rem(rhs)
+    } else {
+        lhs.checked_div(rhs)
+    })
 }
 
 fn add(lhs: Value, rhs: Value) -> Result<Value, String> {
     Ok(match (lhs, rhs) {
         (Value::String(a), rhs) => Value::string(format!("{a}{rhs}")),
-        (Value::Date(d), rhs) => {
-            let secs: i64 = rhs.to_number()?.try_into().map_err(|_| "Число слишком большое для даты")?;
-            Value::Date(shift_date(d, secs)?)
+        (Value::Date(d), rhs) => Value::Date(shift_date(d, seconds(&rhs)?)?),
+        (lhs @ (Value::Int(_) | Value::Number(_)), rhs) => {
+            number(lhs.to_number()?.checked_add(rhs.to_number()?))?
         }
-        (lhs @ Value::Number(_), rhs) => Value::Number(lhs.to_number()? + rhs.to_number()?),
-        _ => return Err("Преобразование значения к типу Число не может быть выполнено".into()),
+        _ => return Err(NOT_A_NUMBER.into()),
     })
 }
 
 fn sub(lhs: Value, rhs: Value) -> Result<Value, String> {
     Ok(match (lhs, rhs) {
-        (Value::Date(a), Value::Date(b)) => {
-            let secs = (a - b).num_seconds() as i64;
-            Value::Number(Decimal::from(secs as u32))
-        }
-        (Value::Date(d), rhs) => {
-            let secs: i64 = rhs.to_number()?.try_into().map_err(|_| "Число слишком большое для даты")?;
-            Value::Date(shift_date(d, -secs)?)
-        }
-        (lhs, rhs) => Value::Number(lhs.to_number()? - rhs.to_number()?),
+        (Value::Date(a), Value::Date(b)) => Value::Int((a - b).num_seconds()),
+        (Value::Date(d), rhs) => Value::Date(shift_date(d, -seconds(&rhs)?)?),
+        (lhs, rhs) => number(lhs.to_number()?.checked_sub(rhs.to_number()?))?,
     })
+}
+
+fn mul(lhs: Value, rhs: Value) -> Result<Value, String> {
+    Ok(number(lhs.to_number()?.checked_mul(rhs.to_number()?))?)
+}
+
+fn div(lhs: Value, rhs: Value) -> Result<Value, String> {
+    Ok(divide(lhs.to_number()?, rhs.to_number()?, false)?)
+}
+
+fn rem(lhs: Value, rhs: Value) -> Result<Value, String> {
+    Ok(divide(lhs.to_number()?, rhs.to_number()?, true)?)
+}
+
+fn seconds(value: &Value) -> Result<i64, String> {
+    value
+        .to_number()?
+        .trunc()
+        .try_into()
+        .map_err(|_| "Число слишком большое для даты".to_string())
 }
 
 fn shift_date(date: chrono::NaiveDateTime, seconds: i64) -> Result<chrono::NaiveDateTime, String> {
     chrono::TimeDelta::try_seconds(seconds)
         .and_then(|delta| date.checked_add_signed(delta))
         .ok_or_else(|| "Недопустимое значение даты".to_string())
-}
-
-/// Checks everything the interpreter relies on without re-checking at run time: instructions
-/// decode, operands are in range, jumps stay inside their function, natives exist.
-fn validate(object: &ObjectFile, strings: &[Rc<str>]) -> Result<HashMap<u32, Native>, LoadError> {
-    let table = &object.function_table;
-    let code = &object.code_section;
-    let fail = |message: String| Err(LoadError(message));
-
-    if table.entry as usize >= table.functions.len() {
-        return fail(format!("entry function #{} does not exist", table.entry));
-    }
-
-    let mut natives = HashMap::new();
-    for (idx, function) in table.functions.iter().enumerate() {
-        let start = function.code_offset as usize;
-        let end = start + function.code_len as usize;
-        if end > code.code.len() || u16::from(function.param_count) > function.local_count {
-            return fail(format!("function #{idx} has an invalid layout"));
-        }
-        let instructions = code
-            .instructions(start, end)
-            .map_err(|e| LoadError(format!("function #{idx}: {e}")))?;
-        let starts: std::collections::HashSet<usize> =
-            instructions.iter().map(|(offset, _)| *offset).collect();
-        if !matches!(
-            instructions.last(),
-            Some((
-                _,
-                Instruction::Return
-                    | Instruction::Raise
-                    | Instruction::ReRaise
-                    | Instruction::Jump(_)
-            ))
-        ) {
-            return fail(format!("function #{idx} does not end with a return"));
-        }
-
-        for (offset, instruction) in instructions {
-            let bad = |what: &str| LoadError(format!("function #{idx} at {offset}: {what}"));
-            match instruction {
-                Instruction::PushC(Constant::String(s))
-                | Instruction::New { type_name: s, .. }
-                | Instruction::CallMethod { name: s, .. }
-                    if s as usize >= strings.len() =>
-                {
-                    return Err(bad("string index out of range"))
-                }
-                Instruction::PushV(i) | Instruction::PopV(i) if i >= function.local_count => {
-                    return Err(bad("local index out of range"))
-                }
-                Instruction::PushG(i) | Instruction::PopG(i) if i >= table.global_count => {
-                    return Err(bad("global index out of range"))
-                }
-                Instruction::Jump(target)
-                | Instruction::JumpIfFalse(target)
-                | Instruction::TryBegin(target)
-                    if !starts.contains(&(target as usize)) =>
-                {
-                    return Err(bad("jump target is not an instruction of this function"))
-                }
-                Instruction::Call {
-                    function: callee,
-                    argc,
-                } => match table.functions.get(callee as usize) {
-                    Some(f) if f.param_count == argc => {}
-                    _ => return Err(bad("call to a missing function or with wrong arity")),
-                },
-                Instruction::CallNative { name, .. } => {
-                    let native = strings
-                        .get(name as usize)
-                        .and_then(|name| Native::resolve(name))
-                        .ok_or_else(|| bad("unknown native function"))?;
-                    natives.insert(name, native);
-                }
-                _ => {}
-            }
-        }
-    }
-    Ok(natives)
 }

@@ -93,10 +93,10 @@ pub fn call(native: Native, ctx: NativeContext<'_>, args: &[Value]) -> Result<Va
             Value::Undefined
         }
         Native::String => Value::string(text(0)),
-        Native::Number => Value::Number(number(0)?),
+        Native::Number => Value::number(number(0)?),
         Native::Boolean => Value::Boolean(arg(0).to_boolean()?),
         Native::Format => Value::string(crate::format::format(&arg(0), &text(1))),
-        Native::StrLen => Value::Number(Decimal::from(chars(0).len() as u32)),
+        Native::StrLen => Value::number(Decimal::from(chars(0).len() as u32)),
         Native::Upper => Value::string(text(0).to_uppercase()),
         Native::Lower => Value::string(text(0).to_lowercase()),
         Native::Left => {
@@ -128,7 +128,7 @@ pub fn call(native: Native, ctx: NativeContext<'_>, args: &[Value]) -> Result<Va
                 .find(&needle)
                 .map(|byte| haystack[..byte].chars().count() + 1)
                 .unwrap_or(0);
-            Value::Number(Decimal::from(position as u32))
+            Value::number(Decimal::from(position as u32))
         }
         Native::StrReplace => {
             let needle = text(1);
@@ -145,9 +145,9 @@ pub fn call(native: Native, ctx: NativeContext<'_>, args: &[Value]) -> Result<Va
             };
             // Round using Decimal's built-in round with scale
             let rounded = number(0)?.round_dp(digits as u32);
-            Value::Number(rounded)
+            Value::number(rounded)
         }
-        Native::Int => Value::Number(number(0)?.trunc()),
+        Native::Int => Value::number(number(0)?.trunc()),
         Native::Max | Native::Min => {
             let wanted = if native == Native::Max {
                 Ordering::Greater
@@ -170,7 +170,7 @@ pub fn call(native: Native, ctx: NativeContext<'_>, args: &[Value]) -> Result<Va
             for _ in 0..exp {
                 result *= base;
             }
-            Value::Number(result)
+            Value::number(result)
         }
         Native::Sqrt => {
             let n = number(0)?;
@@ -179,7 +179,7 @@ pub fn call(native: Native, ctx: NativeContext<'_>, args: &[Value]) -> Result<Va
             }
             // Newton's method for square root with Decimal
             if n == Decimal::ZERO {
-                return Ok(Value::Number(Decimal::ZERO));
+                return Ok(Value::number(Decimal::ZERO));
             }
             let mut guess = n / Decimal::TWO;
             for _ in 0..50 {
@@ -189,7 +189,7 @@ pub fn call(native: Native, ctx: NativeContext<'_>, args: &[Value]) -> Result<Va
                 }
                 guess = new_guess;
             }
-            Value::Number(guess)
+            Value::number(guess)
         }
         Native::ValueIsFilled => Value::Boolean(arg(0).is_filled()),
         Native::CurrentDate => {

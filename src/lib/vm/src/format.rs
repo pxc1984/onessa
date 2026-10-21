@@ -66,6 +66,7 @@ fn leading_number(text: &str) -> Option<usize> {
 pub fn format(value: &Value, format: &str) -> String {
     let params = Params::parse(format);
     match value {
+        Value::Int(n) => format_number_with(Decimal::from(*n), &params),
         Value::Number(n) => format_number_with(*n, &params),
         Value::Boolean(b) => {
             let (name, default) = if *b {

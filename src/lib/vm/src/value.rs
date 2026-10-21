@@ -12,6 +12,10 @@ pub enum Value {
     Undefined,
     Null,
     Boolean(bool),
+    /// Число that is an integer fitting in `i64`: the fast representation of the common case.
+    /// `Int` and `Number` are the same language type and compare by value.
+    Int(i64),
+    /// Any other Число.
     Number(Decimal),
     String(Rc<str>),
     Date(NaiveDateTime),
@@ -39,7 +43,11 @@ impl PartialEq for Value {
             (Value::Undefined, Value::Undefined) => true,
             (Value::Null, Value::Null) => true,
             (Value::Boolean(a), Value::Boolean(b)) => a == b,
+            (Value::Int(a), Value::Int(b)) => a == b,
             (Value::Number(a), Value::Number(b)) => a == b,
+            (Value::Int(a), Value::Number(b)) | (Value::Number(b), Value::Int(a)) => {
+                Decimal::from(*a) == *b
+            }
             (Value::String(a), Value::String(b)) => a == b,
             (Value::Date(a), Value::Date(b)) => a == b,
             (Value::Array(a), Value::Array(b)) => Rc::ptr_eq(a, b),
@@ -56,6 +64,17 @@ pub const NOT_A_BOOLEAN: &str = "Преобразование значения �
 impl Value {
     pub fn string(s: impl Into<Rc<str>>) -> Self {
         Value::String(s.into())
+    }
+
+    /// A number in its canonical representation: `Int` whenever the value is an integer that
+    /// fits.
+    pub fn number(n: Decimal) -> Self {
+        if n.fract().is_zero() {
+            if let Ok(i) = i64::try_from(n) {
+                return Value::Int(i);
+            }
+        }
+        Value::Number(n)
     }
 
     pub fn array(items: Vec<Value>) -> Self {
@@ -78,7 +97,7 @@ impl Value {
             Value::Undefined => "Неопределено",
             Value::Null => "Null",
             Value::Boolean(_) => "Булево",
-            Value::Number(_) => "Число",
+            Value::Int(_) | Value::Number(_) => "Число",
             Value::String(_) => "Строка",
             Value::Date(_) => "Дата",
             Value::Array(_) => "Массив",
@@ -91,6 +110,7 @@ impl Value {
     pub fn to_boolean(&self) -> Result<bool, String> {
         match self {
             Value::Boolean(b) => Ok(*b),
+            Value::Int(n) => Ok(*n != 0),
             Value::Number(n) => Ok(*n != Decimal::ZERO),
             Value::String(s) => match s.trim().to_lowercase().as_str() {
                 "истина" | "да" | "true" => Ok(true),
@@ -104,6 +124,7 @@ impl Value {
     /// Conversion used by arithmetic and `Число()`: numbers and numeric strings.
     pub fn to_number(&self) -> Result<Decimal, String> {
         match self {
+            Value::Int(n) => Ok(Decimal::from(*n)),
             Value::Number(n) => Ok(*n),
             Value::String(s) => {
                 let normalized: String = s
@@ -124,7 +145,10 @@ impl Value {
     /// Ordering for `<`, `<=`, `>`, `>=`: only between values of the same primitive types.
     pub fn compare(&self, other: &Value) -> Result<Ordering, String> {
         let ordering = match (self, other) {
-            (Value::Number(a), Value::Number(b)) => a.partial_cmp(b),
+            (Value::Int(a), Value::Int(b)) => Some(a.cmp(b)),
+            (Value::Int(_) | Value::Number(_), Value::Int(_) | Value::Number(_)) => {
+                Some(self.to_number()?.cmp(&other.to_number()?))
+            }
             (Value::String(a), Value::String(b)) => Some(a.cmp(b)),
             (Value::Date(a), Value::Date(b)) => Some(a.cmp(b)),
             (Value::Boolean(a), Value::Boolean(b)) => Some(a.cmp(b)),
@@ -140,6 +164,7 @@ impl Value {
         match self {
             Value::Undefined | Value::Null => false,
             Value::Boolean(_) => true,
+            Value::Int(n) => *n != 0,
             Value::Number(n) => *n != Decimal::ZERO,
             Value::String(s) => !s.trim().is_empty(),
             Value::Date(d) => *d != Self::empty_date(),
@@ -157,6 +182,7 @@ impl Display for Value {
             Value::Undefined | Value::Null => Ok(()),
             Value::Boolean(true) => write!(f, "Да"),
             Value::Boolean(false) => write!(f, "Нет"),
+            Value::Int(n) => write!(f, "{}", format_decimal(Decimal::from(*n))),
             Value::Number(n) => write!(f, "{}", format_decimal(*n)),
             Value::String(s) => write!(f, "{s}"),
             Value::Date(d) => write!(
@@ -223,6 +249,17 @@ mod tests {
         assert_eq!(Value::Number(Decimal::new(2, 0)).to_boolean(), Ok(true));
         assert!(Value::Undefined.to_boolean().is_err());
         assert!(Value::Number(Decimal::ONE).compare(&Value::string("1")).is_err());
+        assert_eq!(Value::number(Decimal::new(20, 1)), Value::Int(2));
+        assert!(matches!(Value::number(Decimal::new(20, 1)), Value::Int(2)));
+        assert!(matches!(
+            Value::number(Decimal::new(25, 1)),
+            Value::Number(_)
+        ));
+        assert_eq!(Value::Int(3), Value::Number(Decimal::from(3)));
+        assert_eq!(
+            Value::Int(3).compare(&Value::Number(Decimal::new(25, 1))),
+            Ok(Ordering::Greater)
+        );
     }
 
     #[test]

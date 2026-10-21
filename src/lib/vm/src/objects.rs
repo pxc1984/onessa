@@ -79,7 +79,7 @@ fn array_method(
     args: &[Value],
 ) -> Option<Result<Value, String>> {
     let arg = |i: usize| args.get(i).cloned().unwrap_or(Value::Undefined);
-    let count = |n: usize| Value::Number(Decimal::from(n as u64));
+    let count = |n: usize| Value::number(Decimal::from(n as u64));
     Some(match name {
         "добавить" | "add" => {
             items.borrow_mut().push(arg(0));
@@ -94,7 +94,7 @@ fn array_method(
             Ok(Value::Undefined)
         }),
         "количество" | "count" => Ok(count(items.borrow().len())),
-        "вграница" | "ubound" => Ok(Value::Number(Decimal::from(
+        "вграница" | "ubound" => Ok(Value::number(Decimal::from(
             items.borrow().len() as i64 - 1,
         ))),
         "получить" | "get" => index_get_items(&items.borrow(), &arg(0)),
@@ -144,9 +144,11 @@ fn to_size(value: &Value) -> Result<usize, String> {
 
 /// An index of an existing element of a collection of `len` elements.
 fn to_index(value: &Value, len: usize) -> Result<usize, String> {
-    let n = value.to_number()?.trunc();
-    usize::try_from(n)
-        .ok()
+    let index = match value {
+        Value::Int(i) => usize::try_from(*i).ok(),
+        _ => usize::try_from(value.to_number()?.trunc()).ok(),
+    };
+    index
         .filter(|&i| i < len)
         .ok_or_else(|| INDEX_OUT_OF_RANGE.to_string())
 }

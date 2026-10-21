@@ -4,6 +4,7 @@ mod error;
 mod format;
 mod native;
 mod objects;
+mod program;
 mod value;
 mod vm;
 
