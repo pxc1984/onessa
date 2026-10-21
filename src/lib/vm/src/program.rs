@@ -7,7 +7,8 @@
 use crate::error::LoadError;
 use crate::native::Native;
 use crate::value::Value;
-use onessa_core::bytecode::{Constant, Instruction};
+use onessa_core::builtins::{self, ArrayMethod};
+use onessa_core::bytecode::{Constant, Instruction, ValueType};
 use onessa_core::object::ObjectFile;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
@@ -42,6 +43,7 @@ pub enum Op {
     PopG(u16),
     Pop,
     Dup,
+    CheckType(ValueType),
     Arith(Arith),
     Neg,
     Cmp(Cmp),
@@ -73,12 +75,14 @@ pub enum Op {
     Raise,
     ReRaise,
     New {
+        value_type: Option<ValueType>,
         type_name: u32,
         argc: u8,
     },
     IndexGet,
     IndexSet,
     CallMethod {
+        method: Option<ArrayMethod>,
         name: u32,
         argc: u8,
     },
@@ -206,8 +210,6 @@ pub struct Program {
     pub entry: u32,
     pub global_count: usize,
     pub strings: Vec<Rc<str>>,
-    /// Lowercased strings, for case-insensitive type and method names.
-    pub lowercase: Vec<Box<str>>,
 }
 
 /// An op of one function while it is being optimized. Jump targets are still code offsets.
@@ -228,7 +230,6 @@ impl Program {
         let strings: Vec<Rc<str>> = (0..object.string_table.len() as u32)
             .map(|idx| Rc::from(&*object.string_table.get(idx).unwrap_or_default()))
             .collect();
-        let lowercase = strings.iter().map(|s| s.to_lowercase().into()).collect();
         let table = &object.function_table;
         let fail = |message: String| Err(LoadError(message));
 
@@ -244,7 +245,6 @@ impl Program {
             entry: table.entry,
             global_count: table.global_count as usize,
             strings,
-            lowercase,
         };
 
         for idx in 0..table.functions.len() {
@@ -361,6 +361,7 @@ impl Program {
                 Instruction::PopG(i) => Op::PopG(global(i)?),
                 Instruction::Pop => Op::Pop,
                 Instruction::Dup => Op::Dup,
+                Instruction::CheckType(t) => Op::CheckType(t),
                 Instruction::Add => Op::Arith(Arith::Add),
                 Instruction::Sub => Op::Arith(Arith::Sub),
                 Instruction::Mul => Op::Arith(Arith::Mul),
@@ -415,14 +416,18 @@ impl Program {
                 Instruction::TryEnd => Op::TryEnd,
                 Instruction::Raise => Op::Raise,
                 Instruction::ReRaise => Op::ReRaise,
+                // Type and method names are resolved once here, not on every execution.
                 Instruction::New { type_name, argc } => Op::New {
-                    type_name: string(type_name)?,
+                    value_type: builtins::lookup_type(&self.strings[string(type_name)? as usize]),
+                    type_name,
                     argc,
                 },
                 Instruction::IndexGet => Op::IndexGet,
                 Instruction::IndexSet => Op::IndexSet,
                 Instruction::CallMethod { name, argc } => Op::CallMethod {
-                    name: string(name)?,
+                    method: builtins::lookup_array_method(&self.strings[string(name)? as usize])
+                        .map(|m| m.id),
+                    name,
                     argc,
                 },
             };
@@ -582,6 +587,11 @@ mod tests {
 
     fn fused(ops: &[Op], targets: &[usize]) -> Vec<Op> {
         fuse(entries(ops, targets)).iter().map(|e| e.op).collect()
+    }
+
+    #[test]
+    fn ops_stay_small() {
+        assert!(std::mem::size_of::<Op>() <= 12);
     }
 
     #[test]

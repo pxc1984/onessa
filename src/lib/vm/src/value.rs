@@ -1,9 +1,10 @@
 use chrono::{DateTime, Datelike, NaiveDateTime, Timelike};
+use onessa_core::bytecode::ValueType;
 use rust_decimal::Decimal;
+use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
-use std::cell::RefCell;
 use std::rc::Rc;
 
 /// Runtime value of the language. Strings are immutable and shared.
@@ -103,6 +104,20 @@ impl Value {
             Value::Array(_) => "Массив",
             Value::Structure(_) => "Структура",
             Value::Object(object) => return object.borrow().type_name.clone(),
+        })
+    }
+
+    /// The type checked by `CHECK_TYPE`; `None` for types the compiler does not know.
+    pub fn value_type(&self) -> Option<ValueType> {
+        Some(match self {
+            Value::Undefined => ValueType::Undefined,
+            Value::Null => ValueType::Null,
+            Value::Boolean(_) => ValueType::Boolean,
+            Value::Int(_) | Value::Number(_) => ValueType::Number,
+            Value::String(_) => ValueType::String,
+            Value::Date(_) => ValueType::Date,
+            Value::Array(_) => ValueType::Array,
+            Value::Structure(_) | Value::Object(_) => return None,
         })
     }
 
@@ -218,7 +233,10 @@ mod tests {
         assert_eq!(format_decimal(Decimal::new(5, 0)), "5");
         assert_eq!(format_decimal(Decimal::new(-125, 1)), "-12,5");
         assert_eq!(format_decimal(Decimal::new(1234, 0)), "1\u{00A0}234");
-        assert_eq!(format_decimal(Decimal::new(123456725, 2)), "1\u{00A0}234\u{00A0}567,25");
+        assert_eq!(
+            format_decimal(Decimal::new(123456725, 2)),
+            "1\u{00A0}234\u{00A0}567,25"
+        );
         // Test exact decimal arithmetic: 0.1 + 0.2 = 0.3
         let a = Decimal::new(1, 1); // 0.1
         let b = Decimal::new(2, 1); // 0.2
@@ -244,11 +262,16 @@ mod tests {
 
     #[test]
     fn conversions() {
-        assert_eq!(Value::string(" 1 234,5 ").to_number(), Ok(Decimal::new(12345, 1)));
+        assert_eq!(
+            Value::string(" 1 234,5 ").to_number(),
+            Ok(Decimal::new(12345, 1))
+        );
         assert!(Value::string("abc").to_number().is_err());
         assert_eq!(Value::Number(Decimal::new(2, 0)).to_boolean(), Ok(true));
         assert!(Value::Undefined.to_boolean().is_err());
-        assert!(Value::Number(Decimal::ONE).compare(&Value::string("1")).is_err());
+        assert!(Value::Number(Decimal::ONE)
+            .compare(&Value::string("1"))
+            .is_err());
         assert_eq!(Value::number(Decimal::new(20, 1)), Value::Int(2));
         assert!(matches!(Value::number(Decimal::new(20, 1)), Value::Int(2)));
         assert!(matches!(

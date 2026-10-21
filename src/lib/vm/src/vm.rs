@@ -144,6 +144,15 @@ impl<'a> Vm<'a> {
                 Op::Pop => {
                     pop!();
                 }
+                Op::CheckType(expected) => {
+                    let value = top!();
+                    if value.value_type() != Some(expected) {
+                        check!(Err(format!(
+                            "Несоответствие типов: ожидается {expected}, получено {}",
+                            value.type_name()
+                        )));
+                    }
+                }
                 Op::Dup => {
                     let value = top!().clone();
                     stack.push(value);
@@ -313,10 +322,14 @@ impl<'a> Vm<'a> {
                     let message = self.error_description.as_deref().unwrap_or_default();
                     check!(Err(message.to_string()));
                 }
-                Op::New { type_name, argc } => {
+                Op::New {
+                    value_type,
+                    type_name,
+                    argc,
+                } => {
                     let split = check!(stack.len().checked_sub(argc as usize).ok_or(UNDERFLOW));
                     let value = check!(objects::construct(
-                        &self.program.lowercase[type_name as usize],
+                        value_type,
                         &self.program.strings[type_name as usize],
                         &stack[split..],
                     ));
@@ -359,11 +372,11 @@ impl<'a> Vm<'a> {
                     let collection = pop!();
                     check!(objects::index_set(&collection, &index, value));
                 }
-                Op::CallMethod { name, argc } => {
+                Op::CallMethod { method, name, argc } => {
                     let split = check!(stack.len().checked_sub(argc as usize + 1).ok_or(UNDERFLOW));
                     let result = check!(objects::call_method(
                         &stack[split],
-                        &self.program.lowercase[name as usize],
+                        method,
                         &self.program.strings[name as usize],
                         &stack[split + 1..],
                     ));

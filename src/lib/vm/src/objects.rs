@@ -1,6 +1,8 @@
 //! Built-in object types: constructors (`Новый`), indexing and methods.
 
 use crate::value::Value;
+use onessa_core::builtins::ArrayMethod;
+use onessa_core::bytecode::ValueType;
 use rust_decimal::Decimal;
 use std::cell::RefCell;
 
@@ -10,11 +12,15 @@ const NOT_INDEX_ASSIGNABLE: &str =
 const INDEX_OUT_OF_RANGE: &str = "Значение индекса выходит за пределы диапазона";
 const INVALID_ARGUMENT: &str = "Неверное значение аргумента";
 
-/// `Новый <type_name>(args)`. `type_name` must already be lowercased.
-pub fn construct(type_name: &str, display_name: &str, args: &[Value]) -> Result<Value, String> {
-    match type_name {
-        "массив" | "array" => new_array(args),
-        _ => Err(format!("Тип не определен ({display_name})")),
+/// `Новый <type_name>(args)`; `value_type` is `None` if no type has this name.
+pub fn construct(
+    value_type: Option<ValueType>,
+    type_name: &str,
+    args: &[Value],
+) -> Result<Value, String> {
+    match value_type {
+        Some(ValueType::Array) => new_array(args),
+        _ => Err(format!("Тип не определен ({type_name})")),
     }
 }
 
@@ -84,33 +90,33 @@ pub fn index_set(collection: &Value, index: &Value, value: Value) -> Result<(), 
 }
 
 /// `object.method(args)`. `name` must already be lowercased; procedures return `Неопределено`.
+/// `object.method(args)`, where `method` is the array method with this name, if any.
+/// Procedures return `Неопределено`.
 pub fn call_method(
     object: &Value,
+    method: Option<ArrayMethod>,
     name: &str,
-    display_name: &str,
     args: &[Value],
 ) -> Result<Value, String> {
-    let not_found = || format!("Метод объекта не обнаружен ({display_name})");
-    match object {
-        Value::Array(items) => array_method(items, name, args).unwrap_or_else(|| Err(not_found())),
-        _ => Err(not_found()),
+    match (object, method) {
+        (Value::Array(items), Some(method)) => array_method(items, method, args),
+        _ => Err(format!("Метод объекта не обнаружен ({name})")),
     }
 }
 
-/// `None` if the array has no such method.
 fn array_method(
     items: &RefCell<Vec<Value>>,
-    name: &str,
+    method: ArrayMethod,
     args: &[Value],
-) -> Option<Result<Value, String>> {
+) -> Result<Value, String> {
     let arg = |i: usize| args.get(i).cloned().unwrap_or(Value::Undefined);
-    let count = |n: usize| Value::number(Decimal::from(n as u64));
-    Some(match name {
-        "добавить" | "add" => {
+    let count = |n: usize| Value::Int(n as i64);
+    match method {
+        ArrayMethod::Add => {
             items.borrow_mut().push(arg(0));
             Ok(Value::Undefined)
         }
-        "вставить" | "insert" => to_size(&arg(0)).and_then(|i| {
+        ArrayMethod::Insert => to_size(&arg(0)).and_then(|i| {
             let mut items = items.borrow_mut();
             if i > items.len() {
                 return Err(INDEX_OUT_OF_RANGE.to_string());
@@ -118,19 +124,17 @@ fn array_method(
             items.insert(i, arg(1));
             Ok(Value::Undefined)
         }),
-        "количество" | "count" => Ok(count(items.borrow().len())),
-        "вграница" | "ubound" => Ok(Value::number(Decimal::from(
-            items.borrow().len() as i64 - 1,
-        ))),
-        "получить" | "get" => index_get_items(&items.borrow(), &arg(0)),
-        "установить" | "set" => {
+        ArrayMethod::Count => Ok(count(items.borrow().len())),
+        ArrayMethod::UBound => Ok(Value::Int(items.borrow().len() as i64 - 1)),
+        ArrayMethod::Get => index_get_items(&items.borrow(), &arg(0)),
+        ArrayMethod::Set => {
             let mut items = items.borrow_mut();
             to_index(&arg(0), items.len()).map(|i| {
                 items[i] = arg(1);
                 Value::Undefined
             })
         }
-        "найти" | "find" => {
+        ArrayMethod::Find => {
             let needle = arg(0);
             Ok(items
                 .borrow()
@@ -138,19 +142,18 @@ fn array_method(
                 .position(|item| *item == needle)
                 .map_or(Value::Undefined, count))
         }
-        "удалить" | "delete" => {
+        ArrayMethod::Delete => {
             let mut items = items.borrow_mut();
             to_index(&arg(0), items.len()).map(|i| {
                 items.remove(i);
                 Value::Undefined
             })
         }
-        "очистить" | "clear" => {
+        ArrayMethod::Clear => {
             items.borrow_mut().clear();
             Ok(Value::Undefined)
         }
-        _ => return None,
-    })
+    }
 }
 
 fn index_get_items(items: &[Value], index: &Value) -> Result<Value, String> {
@@ -182,33 +185,36 @@ fn to_index(value: &Value, len: usize) -> Result<usize, String> {
 mod tests {
     use super::*;
 
+    fn construct(name: &str, args: &[Value]) -> Result<Value, String> {
+        super::construct(onessa_core::builtins::lookup_type(name), name, args)
+    }
+
+    fn call_method(object: &Value, name: &str, args: &[Value]) -> Result<Value, String> {
+        let method = onessa_core::builtins::lookup_array_method(name).map(|m| m.id);
+        super::call_method(object, method, name, args)
+    }
+
     fn n(x: i64) -> Value {
         Value::Number(Decimal::from(x))
     }
 
     #[test]
     fn arrays() {
-        let array = construct("массив", "Массив", &[n(2)]).unwrap();
+        let array = construct("массив", &[n(2)]).unwrap();
         assert_eq!(index_get(&array, &n(1)), Ok(Value::Undefined));
-        call_method(&array, "добавить", "Добавить", &[n(7)]).unwrap();
-        assert_eq!(
-            call_method(&array, "количество", "Количество", &[]),
-            Ok(n(3))
-        );
+        call_method(&array, "Добавить", &[n(7)]).unwrap();
+        assert_eq!(call_method(&array, "Количество", &[]), Ok(n(3)));
         index_set(&array, &n(0), n(5)).unwrap();
         assert_eq!(index_get(&array, &n(0)), Ok(n(5)));
-        assert_eq!(call_method(&array, "найти", "Найти", &[n(7)]), Ok(n(2)));
-        assert_eq!(
-            call_method(&array, "найти", "Найти", &[n(8)]),
-            Ok(Value::Undefined)
-        );
+        assert_eq!(call_method(&array, "Найти", &[n(7)]), Ok(n(2)));
+        assert_eq!(call_method(&array, "Найти", &[n(8)]), Ok(Value::Undefined));
         assert!(index_get(&array, &n(3)).is_err());
         assert!(index_get(&array, &n(-1)).is_err());
-        assert!(call_method(&array, "нет", "Нет", &[]).is_err());
-        assert!(construct("нет", "Нет", &[]).is_err());
+        assert!(call_method(&array, "Нет", &[]).is_err());
+        assert!(construct("нет", &[]).is_err());
 
-        let matrix = construct("array", "Array", &[n(2), n(3)]).unwrap();
+        let matrix = construct("array", &[n(2), n(3)]).unwrap();
         let row = index_get(&matrix, &n(1)).unwrap();
-        assert_eq!(call_method(&row, "ubound", "UBound", &[]), Ok(n(2)));
+        assert_eq!(call_method(&row, "UBound", &[]), Ok(n(2)));
     }
 }

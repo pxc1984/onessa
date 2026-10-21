@@ -1,4 +1,4 @@
-use crate::bytecode::Constant;
+use crate::bytecode::{Constant, ValueType};
 use rust_decimal::Decimal;
 use std::fmt::{Display, Formatter};
 
@@ -16,6 +16,10 @@ pub enum Instruction<L = u32> {
     PopG(u16),
     Pop,
     Dup,
+    /// Raises an exception unless the value on top of the stack has the type (the value stays
+    /// on the stack). Emitted in strict mode where a value of an unknown type is stored into
+    /// a typed variable.
+    CheckType(ValueType),
 
     // Category 2: Arithmetic, comparison and logic
     Add,
@@ -91,6 +95,7 @@ pub enum DecodeError {
     UnexpectedEnd(usize),
     UnknownOpcode { offset: usize, opcode: u8 },
     UnknownConstant { offset: usize, tag: u8 },
+    UnknownValueType { offset: usize, tag: u8 },
 }
 
 impl Display for DecodeError {
@@ -104,6 +109,9 @@ impl Display for DecodeError {
             }
             DecodeError::UnknownConstant { offset, tag } => {
                 write!(f, "unknown constant tag {tag} at offset {offset}")
+            }
+            DecodeError::UnknownValueType { offset, tag } => {
+                write!(f, "unknown value type {tag} at offset {offset}")
             }
         }
     }
@@ -119,6 +127,7 @@ mod opcode {
     pub const POP_G: u8 = 0x05;
     pub const POP: u8 = 0x06;
     pub const DUP: u8 = 0x07;
+    pub const CHECK_TYPE: u8 = 0x08;
 
     pub const ADD: u8 = 0x10;
     pub const SUB: u8 = 0x11;
@@ -166,6 +175,7 @@ impl<L> Instruction<L> {
             PopG(i) => PopG(i),
             Pop => Pop,
             Dup => Dup,
+            CheckType(t) => CheckType(t),
             Add => Add,
             Sub => Sub,
             Mul => Mul,
@@ -253,6 +263,10 @@ impl Instruction<u32> {
             PopG(i) => encode_u16(out, opcode::POP_G, i),
             Pop => out.push(opcode::POP),
             Dup => out.push(opcode::DUP),
+            CheckType(t) => {
+                out.push(opcode::CHECK_TYPE);
+                out.push(t.tag());
+            }
             Add => out.push(opcode::ADD),
             Sub => out.push(opcode::SUB),
             Mul => out.push(opcode::MUL),
@@ -315,7 +329,7 @@ impl Instruction<u32> {
             PushC(Constant::Number(_)) => 19, // 1 opcode + 1 tag + 17 bytes for Decimal (16 + 1 sign)
             PushC(Constant::Date(_)) => 10,
             PushC(Constant::String(_)) => 6,
-            PushC(_) | PushOut(_) => 2,
+            PushC(_) | PushOut(_) | CheckType(_) => 2,
             PushV(_) | PopV(_) | PushG(_) | PopG(_) => 3,
             Jump(_) | JumpIfFalse(_) | TryBegin(_) => 5,
             ForCheck { .. } | ForStep { .. } => 9,
@@ -357,6 +371,13 @@ impl Instruction<u32> {
             opcode::POP_G => PopG(read_u16(code, pc)?),
             opcode::POP => Pop,
             opcode::DUP => Dup,
+            opcode::CHECK_TYPE => {
+                let tag = read_u8(code, pc)?;
+                CheckType(
+                    ValueType::from_tag(tag)
+                        .ok_or(DecodeError::UnknownValueType { offset, tag })?,
+                )
+            }
             opcode::ADD => Add,
             opcode::SUB => Sub,
             opcode::MUL => Mul,
@@ -423,6 +444,7 @@ impl<L: Display> Display for Instruction<L> {
             PopG(i) => write!(f, "POP_G {i}"),
             Pop => write!(f, "POP"),
             Dup => write!(f, "DUP"),
+            CheckType(t) => write!(f, "CHECK_TYPE {t}"),
             Add => write!(f, "ADD"),
             Sub => write!(f, "SUB"),
             Mul => write!(f, "MUL"),
@@ -522,6 +544,8 @@ mod tests {
             PopG(1),
             Pop,
             Dup,
+            CheckType(ValueType::Number),
+            CheckType(ValueType::Array),
             Add,
             Sub,
             Mul,

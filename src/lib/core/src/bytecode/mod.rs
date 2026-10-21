@@ -4,6 +4,8 @@
 
 mod constant;
 mod instruction;
+mod value_type;
 
 pub use constant::Constant;
 pub use instruction::{DecodeError, Instruction};
+pub use value_type::ValueType;
