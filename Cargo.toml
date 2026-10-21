@@ -24,7 +24,7 @@ members = [
 ]
 
 [workspace.package]
-edition = "2021"
+edition = "2024"
 version = "0.1.0"
 
 #================== Lints ==================#
@@ -109,13 +109,13 @@ tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 tracing-appender = "0.2.4"
 tracing-tracy = { version = "0.11.4", features = ["timer-fallback", "ondemand", "fibers", "context-switch-tracing", "delayed-init"] }
 log = "0.4.29"
-tracy-client = "0.18.4"
+tracy-client = "0.19.0"
 
 # Concurrency/Parallelism
-parking_lot = "0.12.5"
+parking_lot = "0.13.0"
 rayon = "1.11.0"
 crossbeam-channel = "0.5.15"
-rusty_pool = "0.7.0"
+rusty_pool = "1.0.0"
 crossbeam-queue = "0.3.12"
 
 # Network
@@ -126,28 +126,28 @@ thiserror = "2.0.18"
 anyhow = "1.0.100"
 
 # Cryptography
-rand = "0.8.5"
+rand = "0.10.3"
 fnv = "1.0.7"
 wyhash = "0.6.0"
 ahash = "0.8.12"
 rsa = { version = "0.9.9" }
-aes = { version = "0.8.4" }
-cfb8 = "0.8.1"
-sha1 = "0.10.6"
-num-bigint = "0.4.6"
+aes = { version = "0.9.3" }
+cfb8 = "0.9.1"
+sha1 = "0.11.0"
+num-bigint = "0.5.1"
 
 # Encoding/Serialization
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
 serde_derive = "1.0.228"
-base64 = "0.22.1"
+base64 = "0.23.1"
 
 bitcode = "0.6.9"
 bitcode_derive = "0.6.9"
-toml = "0.9.11"
+toml = "1.1.8+spec-1.1.0"
 craftflow-nbt = "2.1.0"
 figment = { version = "0.10.19", features = ["toml", "env"] }
-simd-json = "0.17.0"
+simd-json = "0.18.1"
 bytemuck = { version = "1.24.0", features = ["extern_crate_alloc", "derive"] }
 serde_yaml_ng = "0.10.0"
 
@@ -163,7 +163,7 @@ bimap = "0.6.3"
 # Macros
 lazy_static = "1.5.0"
 quote = "1.0.44"
-syn = { version = "2.0.114", features = ["extra-traits"] }
+syn = { version = "3.0.9", features = ["extra-traits"] }
 proc-macro2 = "1.0.106"
 paste = "1.0.15"
 maplit = "1.0.2"
@@ -188,12 +188,12 @@ memmap2 = "0.9.9"
 tempfile = "3.24.0"
 
 # Benchmarking
-criterion = { version = "0.7.0", features = ["html_reports"] }
+criterion = { version = "0.8.2", features = ["html_reports"] }
 
 # Stats
-sysinfo = { version = "0.37.2", default-features = false, features = ["system"] }
+sysinfo = { version = "0.39.6", default-features = false, features = ["system"] }
 dir-size = "0.1.1"
 
 logos = "0.16.1"
-rowan = "0.16.1"
+rowan = "0.17.0"
 chrono = "0.4.44"

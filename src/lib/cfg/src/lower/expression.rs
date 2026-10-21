@@ -572,7 +572,7 @@ fn builtin_type(name: &str, args: &[Type]) -> Type {
 /// Argument nodes of a call; each is an `Expression`, `None` if the argument was skipped.
 fn call_arguments(nodes: impl Iterator<Item = SyntaxNode<Lang>>) -> Vec<Option<SyntaxNode<Lang>>> {
     nodes
-        .map(|arg| child_nodes(&arg).next().map(|_| arg))
+        .map(|arg| child_nodes(&arg.clone()).next().map(|_| arg))
         .collect()
 }
 
