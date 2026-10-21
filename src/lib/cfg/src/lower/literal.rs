@@ -14,17 +14,17 @@ pub fn literal(ctx: &mut Context, node: &SyntaxNode<Lang>) -> Option<Constant> {
         SyntaxKind::False => Constant::Boolean(false),
         SyntaxKind::Undefined => Constant::Undefined,
         SyntaxKind::Null => Constant::Null,
-        SyntaxKind::NumberLiteral
-        | SyntaxKind::StringLiteral
-        | SyntaxKind::DateLiteral => match Token::lexer(token.text()).next() {
-            Some(Ok(Token::NumberLiteral(n))) => Constant::Number(n),
-            Some(Ok(Token::StringLiteral(s))) => Constant::String(ctx.strings.push(&s)),
-            Some(Ok(Token::DateLiteral(d))) => Constant::Date(d.timestamp()),
-            _ => {
-                ctx.error(node, format!("Invalid literal {}", token.text()));
-                return None;
+        SyntaxKind::NumberLiteral | SyntaxKind::StringLiteral | SyntaxKind::DateLiteral => {
+            match Token::lexer(token.text()).next() {
+                Some(Ok(Token::NumberLiteral(n))) => Constant::Number(n),
+                Some(Ok(Token::StringLiteral(s))) => Constant::String(ctx.strings.push(&s)),
+                Some(Ok(Token::DateLiteral(d))) => Constant::Date(d.timestamp()),
+                _ => {
+                    ctx.error(node, format!("Invalid literal {}", token.text()));
+                    return None;
+                }
             }
-        },
+        }
         _ => return None,
     };
     Some(constant)

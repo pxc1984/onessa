@@ -5,6 +5,13 @@ version.workspace = true
 publish = false
 
 [dependencies]
+onessa-ast = { workspace = true }
+onessa-cfg = { workspace = true }
+onessa-codegen = { workspace = true }
+onessa-core = { workspace = true }
+onessa-lexer = { workspace = true }
+onessa-vm = { workspace = true }
+logos = { workspace = true }
 
 [lints]
 workspace = true

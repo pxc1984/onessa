@@ -473,9 +473,12 @@ dependencies = [
  "log",
  "logos",
  "onessa-ast",
+ "onessa-cfg",
+ "onessa-codegen",
  "onessa-core",
  "onessa-lexer",
  "onessa-logging",
+ "onessa-vm",
  "rowan",
  "tracing",
 ]
@@ -546,6 +549,15 @@ dependencies = [
 [[package]]
 name = "onessa-tests"
 version = "0.1.0"
+dependencies = [
+ "logos",
+ "onessa-ast",
+ "onessa-cfg",
+ "onessa-codegen",
+ "onessa-core",
+ "onessa-lexer",
+ "onessa-vm",
+]
 
 [[package]]
 name = "onessa-utils"

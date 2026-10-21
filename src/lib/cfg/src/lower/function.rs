@@ -163,7 +163,10 @@ impl<'c> FunctionBuilder<'c> {
         if let Some(&slot) = self.local_map.get(&key) {
             return Some(Slot::Local(slot));
         }
-        self.ctx.global_map.get(&key).map(|&slot| Slot::Global(slot))
+        self.ctx
+            .global_map
+            .get(&key)
+            .map(|&slot| Slot::Global(slot))
     }
 
     /// Resolves the target of an assignment, implicitly declaring a local if the name is new.

@@ -162,7 +162,11 @@ impl<'a> Vm<'a> {
                 self.pop()?;
             }
             Instruction::Dup => {
-                let value = self.stack.last().cloned().ok_or("internal error: DUP on empty stack")?;
+                let value = self
+                    .stack
+                    .last()
+                    .cloned()
+                    .ok_or("internal error: DUP on empty stack")?;
                 self.stack.push(value);
             }
             Instruction::Add => {
@@ -363,7 +367,7 @@ fn validate(object: &ObjectFile, strings: &[Rc<str>]) -> Result<HashMap<u32, Nat
     for (idx, function) in table.functions.iter().enumerate() {
         let start = function.code_offset as usize;
         let end = start + function.code_len as usize;
-        if end > code.code.len() || function.param_count as u16 > function.local_count {
+        if end > code.code.len() || u16::from(function.param_count) > function.local_count {
             return fail(format!("function #{idx} has an invalid layout"));
         }
         let instructions = code
@@ -373,7 +377,13 @@ fn validate(object: &ObjectFile, strings: &[Rc<str>]) -> Result<HashMap<u32, Nat
             instructions.iter().map(|(offset, _)| *offset).collect();
         if !matches!(
             instructions.last(),
-            Some((_, Instruction::Return | Instruction::Raise | Instruction::ReRaise | Instruction::Jump(_)))
+            Some((
+                _,
+                Instruction::Return
+                    | Instruction::Raise
+                    | Instruction::ReRaise
+                    | Instruction::Jump(_)
+            ))
         ) {
             return fail(format!("function #{idx} does not end with a return"));
         }
@@ -397,12 +407,13 @@ fn validate(object: &ObjectFile, strings: &[Rc<str>]) -> Result<HashMap<u32, Nat
                 {
                     return Err(bad("jump target is not an instruction of this function"))
                 }
-                Instruction::Call { function: callee, argc } => {
-                    match table.functions.get(callee as usize) {
-                        Some(f) if f.param_count == argc => {}
-                        _ => return Err(bad("call to a missing function or with wrong arity")),
-                    }
-                }
+                Instruction::Call {
+                    function: callee,
+                    argc,
+                } => match table.functions.get(callee as usize) {
+                    Some(f) if f.param_count == argc => {}
+                    _ => return Err(bad("call to a missing function or with wrong arity")),
+                },
                 Instruction::CallNative { name, .. } => {
                     let native = strings
                         .get(name as usize)

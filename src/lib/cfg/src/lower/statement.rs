@@ -29,9 +29,10 @@ impl FunctionBuilder<'_> {
                 node,
                 "'Для Каждого' is not supported yet: collections are not implemented",
             ),
-            SyntaxKind::ProcedureDeclaration | SyntaxKind::FunctionDeclaration => self
-                .ctx
-                .error(node, "Procedures and functions must be declared at module level"),
+            SyntaxKind::ProcedureDeclaration | SyntaxKind::FunctionDeclaration => self.ctx.error(
+                node,
+                "Procedures and functions must be declared at module level",
+            ),
             kind => self
                 .ctx
                 .error(node, format!("Unexpected statement {kind:?}")),
@@ -142,7 +143,13 @@ impl FunctionBuilder<'_> {
         self.terminate(Terminator::Jump(header), line);
         self.switch_to(header);
         self.lower_expression(&condition);
-        self.terminate(Terminator::Branch { then: body, otherwise: exit }, line);
+        self.terminate(
+            Terminator::Branch {
+                then: body,
+                otherwise: exit,
+            },
+            line,
+        );
 
         self.switch_to(body);
         self.lower_loop_body(&block, exit, header);
@@ -185,7 +192,13 @@ impl FunctionBuilder<'_> {
         self.emit_load(counter, line);
         self.emit(Instruction::PushV(limit), line);
         self.emit(Instruction::Le, line);
-        self.terminate(Terminator::Branch { then: body, otherwise: exit }, line);
+        self.terminate(
+            Terminator::Branch {
+                then: body,
+                otherwise: exit,
+            },
+            line,
+        );
 
         self.switch_to(body);
         self.lower_loop_body(&block, exit, increment);
@@ -200,12 +213,7 @@ impl FunctionBuilder<'_> {
         self.switch_to(exit);
     }
 
-    fn lower_loop_body(
-        &mut self,
-        block: &SyntaxNode<Lang>,
-        break_to: usize,
-        continue_to: usize,
-    ) {
+    fn lower_loop_body(&mut self, block: &SyntaxNode<Lang>, break_to: usize, continue_to: usize) {
         self.loops.push(LoopTargets {
             break_to,
             continue_to,
@@ -217,7 +225,11 @@ impl FunctionBuilder<'_> {
 
     fn lower_loop_jump(&mut self, node: &SyntaxNode<Lang>, is_break: bool) {
         let Some(targets) = self.loops.last() else {
-            let keyword = if is_break { "Прервать" } else { "Продолжить" };
+            let keyword = if is_break {
+                "Прервать"
+            } else {
+                "Продолжить"
+            };
             self.ctx
                 .error(node, format!("'{keyword}' can only be used inside a loop"));
             return;
@@ -291,8 +303,7 @@ impl FunctionBuilder<'_> {
                 return;
             }
             (false, Some(value)) => {
-                self.ctx
-                    .error(&value, "Procedure cannot return a value");
+                self.ctx.error(&value, "Procedure cannot return a value");
                 return;
             }
             (false, None) => self.emit(Instruction::PushC(Constant::Undefined), line),

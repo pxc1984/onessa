@@ -12,6 +12,7 @@ pub fn init_logging(level: Level) {
         #[cfg(debug_assertions)]
         {
             tracing_subscriber::fmt::layer()
+                .with_writer(std::io::stderr)
                 .without_time()
                 .with_file(false)
                 .with_line_number(false)
@@ -21,6 +22,7 @@ pub fn init_logging(level: Level) {
         #[cfg(not(debug_assertions))]
         {
             tracing_subscriber::fmt::layer()
+                .with_writer(std::io::stderr)
                 .with_thread_ids(false)
                 .with_thread_names(false)
                 .with_file(false)

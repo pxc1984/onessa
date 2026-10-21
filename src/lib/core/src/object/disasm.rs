@@ -7,7 +7,12 @@ impl ObjectFile {
     pub fn disassemble(&self) -> String {
         let mut out = String::new();
         let table = &self.function_table;
-        writeln!(out, "globals: {}, entry: fn#{}", table.global_count, table.entry).unwrap();
+        writeln!(
+            out,
+            "globals: {}, entry: fn#{}",
+            table.global_count, table.entry
+        )
+        .unwrap();
 
         for (idx, function) in table.functions.iter().enumerate() {
             let name = self.string_table.get(function.name).unwrap_or_default();
@@ -43,8 +48,8 @@ impl ObjectFile {
                     .debug_info
                     .as_ref()
                     .and_then(|d| d.line_at(offset as u32));
-                if line.is_some() && line != last_line {
-                    write!(out, "  ; line {}", line.unwrap()).unwrap();
+                if let Some(number) = line.filter(|_| line != last_line) {
+                    write!(out, "  ; line {number}").unwrap();
                     last_line = line;
                 }
                 out.push('\n');

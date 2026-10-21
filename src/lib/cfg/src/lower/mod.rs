@@ -176,7 +176,10 @@ fn declare_method(ctx: &mut Context, method: &SyntaxNode<Lang>) -> bool {
     let name = identifier_text(&name_node);
     let key = name.to_lowercase();
     if ctx.signature_map.contains_key(&key) {
-        ctx.error(&name_node, format!("Procedure or function is already defined ({name})"));
+        ctx.error(
+            &name_node,
+            format!("Procedure or function is already defined ({name})"),
+        );
         return false;
     }
 
@@ -191,7 +194,10 @@ fn declare_method(ctx: &mut Context, method: &SyntaxNode<Lang>) -> bool {
             .iter()
             .any(|p| p.name.to_lowercase() == param_name.to_lowercase())
         {
-            ctx.error(&parameter, format!("Parameter is already defined ({param_name})"));
+            ctx.error(
+                &parameter,
+                format!("Parameter is already defined ({param_name})"),
+            );
         }
         let default = child_nodes(&parameter)
             .find(|n| n.kind() == SyntaxKind::Expression)
@@ -209,7 +215,10 @@ fn declare_method(ctx: &mut Context, method: &SyntaxNode<Lang>) -> bool {
         });
     }
     if params.len() > MAX_PARAMS {
-        ctx.error(method, format!("Too many parameters (at most {MAX_PARAMS})"));
+        ctx.error(
+            method,
+            format!("Too many parameters (at most {MAX_PARAMS})"),
+        );
         return false;
     }
 

@@ -36,16 +36,14 @@ impl FunctionBuilder<'_> {
             SyntaxKind::BinaryExpression => self.lower_binary(node, line),
             SyntaxKind::TernaryExpression => self.lower_ternary(node, line),
             SyntaxKind::CallExpression => self.lower_call(node, true),
-            SyntaxKind::MemberExpression => self.ctx.error(
-                node,
-                "Object properties and methods are not supported yet",
-            ),
-            SyntaxKind::IndexExpression => {
-                self.ctx.error(node, "Indexing is not supported yet")
-            }
-            SyntaxKind::NewExpression => self
+            SyntaxKind::MemberExpression => self
                 .ctx
-                .error(node, "'Новый' is not supported yet: objects are not implemented"),
+                .error(node, "Object properties and methods are not supported yet"),
+            SyntaxKind::IndexExpression => self.ctx.error(node, "Indexing is not supported yet"),
+            SyntaxKind::NewExpression => self.ctx.error(
+                node,
+                "'Новый' is not supported yet: objects are not implemented",
+            ),
             kind => self
                 .ctx
                 .error(node, format!("Unexpected expression {kind:?}")),
@@ -70,7 +68,10 @@ impl FunctionBuilder<'_> {
         let (Some(lhs), Some(rhs)) = (operands.next(), operands.next()) else {
             return;
         };
-        let Some(operator) = child_tokens(node).map(|t| t.kind()).find(|k| is_operator(*k)) else {
+        let Some(operator) = child_tokens(node)
+            .map(|t| t.kind())
+            .find(|k| is_operator(*k))
+        else {
             return;
         };
 
@@ -116,9 +117,15 @@ impl FunctionBuilder<'_> {
         self.lower_expression(lhs);
         self.emit(Instruction::Dup, line);
         let terminator = if is_and {
-            Terminator::Branch { then: evaluate_rhs, otherwise: end }
+            Terminator::Branch {
+                then: evaluate_rhs,
+                otherwise: end,
+            }
         } else {
-            Terminator::Branch { then: end, otherwise: evaluate_rhs }
+            Terminator::Branch {
+                then: end,
+                otherwise: evaluate_rhs,
+            }
         };
         self.terminate(terminator, line);
 

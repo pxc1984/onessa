@@ -58,7 +58,10 @@ pub struct BasicBlock {
 pub enum Terminator {
     Jump(BlockId),
     /// Pops a boolean and continues in `then` if it is `Истина`, otherwise in `otherwise`.
-    Branch { then: BlockId, otherwise: BlockId },
+    Branch {
+        then: BlockId,
+        otherwise: BlockId,
+    },
     /// Returns the value on top of the stack.
     Return,
     /// Raises an exception with the message on top of the stack.
@@ -90,12 +93,12 @@ impl Function {
                 .terminator
                 .map(|(terminator, _)| terminator.successors())
                 .unwrap_or_default();
-            next.extend(block.instructions.iter().filter_map(|(instruction, _)| {
-                match instruction {
+            next.extend(block.instructions.iter().filter_map(
+                |(instruction, _)| match instruction {
                     Instruction::TryBegin(handler) => Some(*handler),
                     _ => None,
-                }
-            }));
+                },
+            ));
             // `pop` visits the last successor first, so it finishes first and is placed last.
             next
         };

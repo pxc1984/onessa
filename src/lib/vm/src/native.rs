@@ -211,16 +211,40 @@ mod tests {
     fn strings() {
         let s = Value::string("Привет, мир");
         let n = |x: f64| Value::Number(x);
-        assert_eq!(eval(Native::StrLen, &[s.clone()]), Ok(n(11.0)));
-        assert_eq!(eval(Native::Left, &[s.clone(), n(6.0)]), Ok(Value::string("Привет")));
-        assert_eq!(eval(Native::Right, &[s.clone(), n(3.0)]), Ok(Value::string("мир")));
-        assert_eq!(eval(Native::Mid, &[s.clone(), n(9.0)]), Ok(Value::string("мир")));
-        assert_eq!(eval(Native::Mid, &[s.clone(), n(1.0), n(3.0)]), Ok(Value::string("При")));
-        assert_eq!(eval(Native::Mid, &[s.clone(), n(50.0), n(3.0)]), Ok(Value::string("")));
-        assert_eq!(eval(Native::StrFind, &[s.clone(), Value::string("мир")]), Ok(n(9.0)));
-        assert_eq!(eval(Native::StrFind, &[s.clone(), Value::string("x")]), Ok(n(0.0)));
+        assert_eq!(eval(Native::StrLen, std::slice::from_ref(&s)), Ok(n(11.0)));
         assert_eq!(
-            eval(Native::StrReplace, &[s, Value::string("мир"), Value::string("всем")]),
+            eval(Native::Left, &[s.clone(), n(6.0)]),
+            Ok(Value::string("Привет"))
+        );
+        assert_eq!(
+            eval(Native::Right, &[s.clone(), n(3.0)]),
+            Ok(Value::string("мир"))
+        );
+        assert_eq!(
+            eval(Native::Mid, &[s.clone(), n(9.0)]),
+            Ok(Value::string("мир"))
+        );
+        assert_eq!(
+            eval(Native::Mid, &[s.clone(), n(1.0), n(3.0)]),
+            Ok(Value::string("При"))
+        );
+        assert_eq!(
+            eval(Native::Mid, &[s.clone(), n(50.0), n(3.0)]),
+            Ok(Value::string(""))
+        );
+        assert_eq!(
+            eval(Native::StrFind, &[s.clone(), Value::string("мир")]),
+            Ok(n(9.0))
+        );
+        assert_eq!(
+            eval(Native::StrFind, &[s.clone(), Value::string("x")]),
+            Ok(n(0.0))
+        );
+        assert_eq!(
+            eval(
+                Native::StrReplace,
+                &[s, Value::string("мир"), Value::string("всем")]
+            ),
             Ok(Value::string("Привет, всем"))
         );
     }

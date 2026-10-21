@@ -11,6 +11,9 @@ onessa-core = { workspace = true }
 onessa-logging = { workspace = true }
 onessa-ast = { workspace = true }
 onessa-lexer = { workspace = true }
+onessa-cfg = { workspace = true }
+onessa-codegen = { workspace = true }
+onessa-vm = { workspace = true }
 
 logos = { workspace = true }
 rowan = { workspace = true }
@@ -20,6 +23,7 @@ chrono = { workspace = true }
 [features]
 lexer_dump = []
 ast_dump = []
+cfg_dump = []
 
 [lints]
 workspace = true

@@ -60,7 +60,9 @@ impl Deserializable for ObjectFile {
         }
         let version = reader.read_u32::<LittleEndian>()?;
         if version != OBJECT_FILE_VERSION {
-            return Err(invalid_data(format!("unsupported object file version {version}")));
+            return Err(invalid_data(format!(
+                "unsupported object file version {version}"
+            )));
         }
 
         Ok(Self {

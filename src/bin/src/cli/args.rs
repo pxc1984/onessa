@@ -17,13 +17,22 @@ pub struct CLIArgs {
 
 #[derive(Subcommand, Clone, Debug)]
 pub enum Command {
+    /// Compile a module into an object file (`.osc`)
     Compile(CompileArgs),
+    /// Run an object file, or compile and run a source file
     Run(RunArgs),
+    /// Print the bytecode of an object or source file
+    Disasm(DisasmArgs),
+}
+
+#[derive(Debug, Clone, Parser)]
+pub struct DisasmArgs {
+    pub input: PathBuf,
 }
 
 #[derive(Debug, Clone, Parser)]
 pub struct RunArgs {
-    // path to bytecode file
+    /// Object file (or source file to compile first)
     pub input: PathBuf,
 
     // TODO: add ability to pass cli arguments to the command by placing -- after onessa run
@@ -33,8 +42,10 @@ pub struct RunArgs {
 
 #[derive(Debug, Clone, Parser)]
 pub struct CompileArgs {
+    /// Source file; stdin if omitted
     pub input: Option<PathBuf>,
 
+    /// Output object file; defaults to the input path with the `.osc` extension
     #[clap(long, short)]
     pub output: Option<PathBuf>,
 }

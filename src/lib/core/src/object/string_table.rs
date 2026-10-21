@@ -89,7 +89,9 @@ impl Deserializable for StringTable {
             reader.read_exact(&mut bytes)?;
             let string = String::from_utf8(bytes).map_err(invalid_data_from)?;
             if st.push(&string) as usize != index {
-                return Err(invalid_data(format!("duplicate string {string:?} in string table")));
+                return Err(invalid_data(format!(
+                    "duplicate string {string:?} in string table"
+                )));
             }
         }
 

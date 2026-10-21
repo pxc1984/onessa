@@ -117,7 +117,9 @@ fn function_signature() {
 #[test]
 fn raise_and_try() {
     assert_eq!(
-        first_statement("Попытка ВызватьИсключение \"x\"; Исключение ВызватьИсключение; КонецПопытки;"),
+        first_statement(
+            "Попытка ВызватьИсключение \"x\"; Исключение ВызватьИсключение; КонецПопытки;"
+        ),
         "(TryStatement (Block (RaiseStatement (Expression (Literal)))) (Block (RaiseStatement)))"
     );
 }

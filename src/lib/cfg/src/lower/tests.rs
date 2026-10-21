@@ -214,8 +214,14 @@ fn semantic_errors() {
         errors("Процедура П(А)\nКонецПроцедуры\nП();"),
         ["Not enough actual parameters (П) at 3:1"]
     );
-    assert_eq!(errors("Прервать;"), ["'Прервать' can only be used inside a loop at 1:1"]);
-    assert_eq!(errors("Возврат;"), ["'Возврат' is not allowed in the module body at 1:1"]);
+    assert_eq!(
+        errors("Прервать;"),
+        ["'Прервать' can only be used inside a loop at 1:1"]
+    );
+    assert_eq!(
+        errors("Возврат;"),
+        ["'Возврат' is not allowed in the module body at 1:1"]
+    );
     assert_eq!(
         errors("ВызватьИсключение;"),
         ["'ВызватьИсключение' without a message is only allowed inside 'Исключение' at 1:1"]
@@ -232,8 +238,14 @@ fn semantic_errors() {
         errors("Процедура П(А = Б)\nКонецПроцедуры"),
         ["Default parameter value must be a constant at 1:17"]
     );
-    assert_eq!(errors("А = Сообщить(1);"), ["Procedure cannot be used as a function (Сообщить) at 1:5"]);
-    assert_eq!(errors("А;"), ["Expected a procedure call or an assignment at 1:1"]);
+    assert_eq!(
+        errors("А = Сообщить(1);"),
+        ["Procedure cannot be used as a function (Сообщить) at 1:5"]
+    );
+    assert_eq!(
+        errors("А;"),
+        ["Expected a procedure call or an assignment at 1:1"]
+    );
     assert_eq!(
         errors("А = Новый Массив;"),
         ["'Новый' is not supported yet: objects are not implemented at 1:5"]

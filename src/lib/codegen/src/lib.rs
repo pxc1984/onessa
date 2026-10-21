@@ -42,6 +42,9 @@ pub fn generate(module: Module, source_name: &str) -> ObjectFile {
     }
 }
 
+/// Instructions of a laid out block, still jumping to block ids, with their source lines.
+type BlockCode = Vec<(Instruction<BlockId>, u32)>;
+
 /// Instructions a terminator turns into, given the block laid out right after it.
 fn lower_terminator(terminator: Terminator, next: Option<BlockId>) -> Vec<Instruction<BlockId>> {
     match terminator {
@@ -63,7 +66,7 @@ fn emit_function(function: &Function, code: &mut Vec<u8>, lines: &mut Vec<(u32, 
     let order = function.reachable_blocks();
 
     // Flatten blocks into instructions that still jump to block ids.
-    let mut blocks: Vec<(BlockId, Vec<(Instruction<BlockId>, u32)>)> = Vec::new();
+    let mut blocks: Vec<(BlockId, BlockCode)> = Vec::new();
     for (position, &id) in order.iter().enumerate() {
         let block = &function.blocks[id];
         let (terminator, line) = block
@@ -94,9 +97,7 @@ fn emit_function(function: &Function, code: &mut Vec<u8>, lines: &mut Vec<(u32, 
             if lines.last().is_none_or(|&(_, last)| last != line) {
                 lines.push((code.len() as u32, line));
             }
-            instruction
-                .map_target(|block| offsets[&block])
-                .encode(code);
+            instruction.map_target(|block| offsets[&block]).encode(code);
         }
     }
 }

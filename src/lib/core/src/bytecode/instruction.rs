@@ -34,8 +34,14 @@ pub enum Instruction<L = u32> {
     // Category 3: Control flow
     Jump(L),
     JumpIfFalse(L),
-    Call { function: u32, argc: u8 },
-    CallNative { name: u32, argc: u8 },
+    Call {
+        function: u32,
+        argc: u8,
+    },
+    CallNative {
+        name: u32,
+        argc: u8,
+    },
     /// Pushes the final value of by-reference parameter `n` of the call that just returned.
     PushOut(u8),
     Return,
@@ -394,7 +400,10 @@ mod tests {
             Not,
             Jump(42),
             JumpIfFalse(u32::MAX),
-            Call { function: 2, argc: 3 },
+            Call {
+                function: 2,
+                argc: 3,
+            },
             CallNative { name: 9, argc: 255 },
             PushOut(1),
             Return,
@@ -408,7 +417,11 @@ mod tests {
         for instruction in &instructions {
             let before = code.len();
             instruction.encode(&mut code);
-            assert_eq!(code.len() - before, instruction.encoded_len(), "{instruction}");
+            assert_eq!(
+                code.len() - before,
+                instruction.encoded_len(),
+                "{instruction}"
+            );
         }
 
         let mut pc = 0;
@@ -424,7 +437,10 @@ mod tests {
         let mut pc = 0;
         assert_eq!(
             Instruction::decode(&[0xFF], &mut pc),
-            Err(DecodeError::UnknownOpcode { offset: 0, opcode: 0xFF })
+            Err(DecodeError::UnknownOpcode {
+                offset: 0,
+                opcode: 0xFF
+            })
         );
         let mut pc = 0;
         assert_eq!(
