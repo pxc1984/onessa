@@ -1,7 +1,7 @@
 use crate::error::{LoadError, RuntimeError};
 use crate::native::{self, NativeContext};
 use crate::objects;
-use crate::program::{Op, Program};
+use crate::program::{Arith, Cmp, Op, Program};
 use crate::value::{Value, NOT_A_NUMBER};
 use onessa_core::object::{DebugInfo, ObjectFile};
 use rust_decimal::Decimal;
@@ -132,33 +132,6 @@ impl<'a> Vm<'a> {
                 check!(stack.last_mut().ok_or(UNDERFLOW))
             };
         }
-        // Applies an arithmetic operation in place: the result replaces the left operand.
-        // Integers are computed in `i64` and fall back to `Decimal` on overflow.
-        macro_rules! arithmetic {
-            ($int:ident, $slow:expr) => {{
-                let rhs = pop!();
-                let lhs = top!();
-                *lhs = match (&*lhs, &rhs) {
-                    (Value::Int(a), Value::Int(b)) => match a.$int(*b) {
-                        Some(n) => Value::Int(n),
-                        None => check!($slow(lhs.clone(), rhs)),
-                    },
-                    _ => check!($slow(std::mem::replace(lhs, Value::Undefined), rhs)),
-                };
-            }};
-        }
-        macro_rules! compare {
-            (|$ordering:ident| $test:expr) => {{
-                let rhs = pop!();
-                let lhs = top!();
-                let $ordering = match (&*lhs, &rhs) {
-                    (Value::Int(a), Value::Int(b)) => a.cmp(b),
-                    _ => check!(lhs.compare(&rhs)),
-                };
-                *lhs = Value::Boolean($test);
-            }};
-        }
-
         loop {
             let op = ops[pc];
             pc += 1;
@@ -175,16 +148,24 @@ impl<'a> Vm<'a> {
                     let value = top!().clone();
                     stack.push(value);
                 }
-                Op::Add => arithmetic!(checked_add, add),
-                Op::Sub => arithmetic!(checked_sub, sub),
-                Op::Mul => arithmetic!(checked_mul, mul),
-                Op::Div => {
+                Op::Arith(op) => {
                     let rhs = pop!();
                     let lhs = top!();
-                    *lhs = check!(div(std::mem::replace(lhs, Value::Undefined), rhs));
+                    *lhs = check!(arith(op, lhs, &rhs));
                 }
-                // `checked_rem` is `None` for a zero divisor, which `rem` then reports.
-                Op::Mod => arithmetic!(checked_rem, rem),
+                Op::ArithV { op, slot } => {
+                    let lhs = top!();
+                    *lhs = check!(arith(op, lhs, &locals[base + slot as usize]));
+                }
+                Op::ArithC { op, constant } => {
+                    let lhs = top!();
+                    *lhs = check!(arith(op, lhs, &constants[constant as usize]));
+                }
+                Op::ArithToV { op, slot } => {
+                    let rhs = pop!();
+                    let lhs = &mut locals[base + slot as usize];
+                    *lhs = check!(arith(op, lhs, &rhs));
+                }
                 Op::Neg => {
                     let value = top!();
                     *value = match value {
@@ -192,21 +173,66 @@ impl<'a> Vm<'a> {
                         _ => Value::number(-check!(value.to_number())),
                     };
                 }
-                Op::Eq | Op::Ne => {
+                Op::Cmp(op) => {
                     let rhs = pop!();
                     let lhs = top!();
-                    let equal = *lhs == rhs;
-                    *lhs = Value::Boolean(equal == (op == Op::Eq));
+                    *lhs = Value::Boolean(check!(compare(op, lhs, &rhs)));
                 }
-                Op::Lt => compare!(|o| o == Ordering::Less),
-                Op::Le => compare!(|o| o != Ordering::Greater),
-                Op::Gt => compare!(|o| o == Ordering::Greater),
-                Op::Ge => compare!(|o| o != Ordering::Less),
+                Op::CmpJump { op, target } => {
+                    let rhs = pop!();
+                    let lhs = pop!();
+                    if !check!(compare(op, &lhs, &rhs)) {
+                        pc = target as usize;
+                    }
+                }
+                Op::CmpVJump { op, slot, target } => {
+                    let lhs = pop!();
+                    if !check!(compare(op, &lhs, &locals[base + slot as usize])) {
+                        pc = target as usize;
+                    }
+                }
+                Op::CmpCJump {
+                    op,
+                    constant,
+                    target,
+                } => {
+                    let lhs = pop!();
+                    if !check!(compare(op, &lhs, &constants[constant as usize])) {
+                        pc = target as usize;
+                    }
+                }
                 Op::Not => {
                     let value = top!();
                     *value = Value::Boolean(!check!(value.to_boolean()));
                 }
                 Op::Jump(target) => pc = target as usize,
+                Op::ForCheck {
+                    counter,
+                    limit,
+                    target,
+                } => {
+                    let counter = &locals[base + counter as usize];
+                    let limit = &locals[base + limit as usize];
+                    if !check!(compare(Cmp::Le, counter, limit)) {
+                        pc = target as usize;
+                    }
+                }
+                Op::ForStep {
+                    counter,
+                    limit,
+                    target,
+                } => {
+                    let slot = &mut locals[base + counter as usize];
+                    match slot {
+                        Value::Int(n) if *n < i64::MAX => *n += 1,
+                        _ => *slot = check!(arith(Arith::Add, slot, &Value::Int(1))),
+                    }
+                    let counter = &locals[base + counter as usize];
+                    let limit = &locals[base + limit as usize];
+                    if check!(compare(Cmp::Le, counter, limit)) {
+                        pc = target as usize;
+                    }
+                }
                 Op::JumpIfFalse(target) => {
                     let condition = match pop!() {
                         Value::Boolean(b) => b,
@@ -302,6 +328,16 @@ impl<'a> Vm<'a> {
                     let collection = top!();
                     *collection = check!(objects::index_get(collection, &index));
                 }
+                Op::IndexGetV(slot) => {
+                    let collection = top!();
+                    let index = &locals[base + slot as usize];
+                    *collection = check!(objects::index_get(collection, index));
+                }
+                Op::IndexGetC(constant) => {
+                    let collection = top!();
+                    let index = &constants[constant as usize];
+                    *collection = check!(objects::index_get(collection, index));
+                }
                 Op::IndexSet => {
                     let value = pop!();
                     let index = pop!();
@@ -347,6 +383,55 @@ impl<'a> Vm<'a> {
         }
         Ok(())
     }
+}
+
+/// Arithmetic on two values. Integers are computed in `i64` and fall back to `Decimal` on
+/// overflow.
+#[inline(always)]
+fn arith(op: Arith, lhs: &Value, rhs: &Value) -> Result<Value, String> {
+    if let (Value::Int(a), Value::Int(b)) = (lhs, rhs) {
+        let result = match op {
+            Arith::Add => a.checked_add(*b),
+            Arith::Sub => a.checked_sub(*b),
+            Arith::Mul => a.checked_mul(*b),
+            // `None` for a zero divisor, which `rem` then reports.
+            Arith::Mod => a.checked_rem(*b),
+            Arith::Div => None,
+        };
+        if let Some(n) = result {
+            return Ok(Value::Int(n));
+        }
+    }
+    arith_slow(op, lhs.clone(), rhs.clone())
+}
+
+#[inline(never)]
+fn arith_slow(op: Arith, lhs: Value, rhs: Value) -> Result<Value, String> {
+    match op {
+        Arith::Add => add(lhs, rhs),
+        Arith::Sub => sub(lhs, rhs),
+        Arith::Mul => mul(lhs, rhs),
+        Arith::Div => div(lhs, rhs),
+        Arith::Mod => rem(lhs, rhs),
+    }
+}
+
+#[inline(always)]
+fn compare(op: Cmp, lhs: &Value, rhs: &Value) -> Result<bool, String> {
+    let ordering = match (op, lhs, rhs) {
+        (_, Value::Int(a), Value::Int(b)) => a.cmp(b),
+        (Cmp::Eq, _, _) => return Ok(lhs == rhs),
+        (Cmp::Ne, _, _) => return Ok(lhs != rhs),
+        _ => lhs.compare(rhs)?,
+    };
+    Ok(match op {
+        Cmp::Eq => ordering == Ordering::Equal,
+        Cmp::Ne => ordering != Ordering::Equal,
+        Cmp::Lt => ordering == Ordering::Less,
+        Cmp::Le => ordering != Ordering::Greater,
+        Cmp::Gt => ordering == Ordering::Greater,
+        Cmp::Ge => ordering != Ordering::Less,
+    })
 }
 
 fn number(result: Option<Decimal>) -> Result<Value, &'static str> {

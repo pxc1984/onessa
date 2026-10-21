@@ -1,5 +1,8 @@
 //! An object file prepared for execution: the bytecode is validated and decoded once into a
 //! flat array of [`Op`]s, so the interpreter never decodes bytes or looks names up.
+//!
+//! While loading, frequent instruction sequences are fused into superinstructions (see
+//! [`fuse`]); they behave exactly like the sequences they replace.
 
 use crate::error::LoadError;
 use crate::native::Native;
@@ -8,6 +11,25 @@ use onessa_core::bytecode::{Constant, Instruction};
 use onessa_core::object::ObjectFile;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Arith {
+    Add,
+    Sub,
+    Mul,
+    Div,
+    Mod,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Cmp {
+    Eq,
+    Ne,
+    Lt,
+    Le,
+    Gt,
+    Ge,
+}
 
 /// Instruction of the interpreter. Jump targets are indices into [`Program::ops`], constants
 /// are indices into [`Program::constants`], natives are resolved.
@@ -20,33 +42,141 @@ pub enum Op {
     PopG(u16),
     Pop,
     Dup,
-    Add,
-    Sub,
-    Mul,
-    Div,
-    Mod,
+    Arith(Arith),
     Neg,
-    Eq,
-    Ne,
-    Lt,
-    Le,
-    Gt,
-    Ge,
+    Cmp(Cmp),
     Not,
     Jump(u32),
     JumpIfFalse(u32),
-    Call { function: u32, argc: u8 },
-    CallNative { native: Native, argc: u8 },
+    ForCheck {
+        counter: u16,
+        limit: u16,
+        target: u32,
+    },
+    ForStep {
+        counter: u16,
+        limit: u16,
+        target: u32,
+    },
+    Call {
+        function: u32,
+        argc: u8,
+    },
+    CallNative {
+        native: Native,
+        argc: u8,
+    },
     PushOut(u8),
     Return,
     TryBegin(u32),
     TryEnd,
     Raise,
     ReRaise,
-    New { type_name: u32, argc: u8 },
+    New {
+        type_name: u32,
+        argc: u8,
+    },
     IndexGet,
     IndexSet,
-    CallMethod { name: u32, argc: u8 },
+    CallMethod {
+        name: u32,
+        argc: u8,
+    },
+
+    // Superinstructions.
+    /// `PUSH_V slot; INDEX_GET`
+    IndexGetV(u16),
+    /// `PUSH_C constant; INDEX_GET`
+    IndexGetC(u32),
+    /// `PUSH_V slot; <arith>`
+    ArithV {
+        op: Arith,
+        slot: u16,
+    },
+    /// `PUSH_C constant; <arith>`
+    ArithC {
+        op: Arith,
+        constant: u32,
+    },
+    /// `PUSH_V slot; <expression>; <arith>; POP_V slot` where the expression cannot change
+    /// the slot: pops the value of the expression and updates the slot in place.
+    ArithToV {
+        op: Arith,
+        slot: u16,
+    },
+    /// `<cmp>; JUMP_IF_FALSE target`
+    CmpJump {
+        op: Cmp,
+        target: u32,
+    },
+    /// `PUSH_V slot; <cmp>; JUMP_IF_FALSE target`
+    CmpVJump {
+        op: Cmp,
+        slot: u16,
+        target: u32,
+    },
+    /// `PUSH_C constant; <cmp>; JUMP_IF_FALSE target`
+    CmpCJump {
+        op: Cmp,
+        constant: u32,
+        target: u32,
+    },
+}
+
+impl Op {
+    fn map_target(self, f: impl FnOnce(u32) -> u32) -> Op {
+        match self {
+            Op::Jump(t) => Op::Jump(f(t)),
+            Op::JumpIfFalse(t) => Op::JumpIfFalse(f(t)),
+            Op::TryBegin(t) => Op::TryBegin(f(t)),
+            Op::ForCheck {
+                counter,
+                limit,
+                target,
+            } => Op::ForCheck {
+                counter,
+                limit,
+                target: f(target),
+            },
+            Op::ForStep {
+                counter,
+                limit,
+                target,
+            } => Op::ForStep {
+                counter,
+                limit,
+                target: f(target),
+            },
+            Op::CmpJump { op, target } => Op::CmpJump {
+                op,
+                target: f(target),
+            },
+            Op::CmpVJump { op, slot, target } => Op::CmpVJump {
+                op,
+                slot,
+                target: f(target),
+            },
+            Op::CmpCJump {
+                op,
+                constant,
+                target,
+            } => Op::CmpCJump {
+                op,
+                constant,
+                target: f(target),
+            },
+            op => op,
+        }
+    }
+
+    fn target(self) -> Option<u32> {
+        let mut target = None;
+        self.map_target(|t| {
+            target = Some(t);
+            t
+        });
+        target
+    }
 }
 
 pub struct FunctionInfo {
@@ -69,6 +199,16 @@ pub struct Program {
     pub lowercase: Vec<Box<str>>,
 }
 
+/// An op of one function while it is being optimized. Jump targets are still code offsets.
+#[derive(Debug, Clone, Copy)]
+struct Entry {
+    /// Code offset of the (first) instruction the op comes from.
+    offset: u32,
+    /// Some jump lands on this op, so it cannot be fused into the op before it.
+    is_target: bool,
+    op: Op,
+}
+
 impl Program {
     /// Checks everything the interpreter relies on without re-checking at run time:
     /// instructions decode, operands are in range, jumps stay inside their function, natives
@@ -79,7 +219,6 @@ impl Program {
             .collect();
         let lowercase = strings.iter().map(|s| s.to_lowercase().into()).collect();
         let table = &object.function_table;
-        let code = &object.code_section;
         let fail = |message: String| Err(LoadError(message));
 
         if table.entry as usize >= table.functions.len() {
@@ -97,146 +236,390 @@ impl Program {
             lowercase,
         };
 
-        for (idx, function) in table.functions.iter().enumerate() {
-            let start = function.code_offset as usize;
-            let end = start + function.code_len as usize;
-            if end > code.code.len() || u16::from(function.param_count) > function.local_count {
-                return fail(format!("function #{idx} has an invalid layout"));
-            }
-            let instructions = code
-                .instructions(start, end)
-                .map_err(|e| LoadError(format!("function #{idx}: {e}")))?;
-            if !matches!(
-                instructions.last(),
-                Some((
-                    _,
-                    Instruction::Return
-                        | Instruction::Raise
-                        | Instruction::ReRaise
-                        | Instruction::Jump(_)
-                ))
-            ) {
-                return fail(format!("function #{idx} does not end with a return"));
-            }
+        for idx in 0..table.functions.len() {
+            let entries = program.translate_function(object, idx)?;
+            let entries = fuse(entries);
 
             // Ops of this function start right after the previous ones.
             let first_op = program.ops.len();
-            let op_index: HashMap<usize, u32> = instructions
+            let op_index: HashMap<u32, u32> = entries
                 .iter()
                 .enumerate()
-                .map(|(i, (offset, _))| (*offset, (first_op + i) as u32))
+                .filter(|(_, entry)| entry.is_target)
+                .map(|(i, entry)| (entry.offset, (first_op + i) as u32))
                 .collect();
-            let starts: HashSet<usize> = op_index.keys().copied().collect();
+            for entry in entries {
+                program.ops.push(entry.op.map_target(|t| op_index[&t]));
+                program.op_offsets.push(entry.offset);
+            }
 
+            let function = &table.functions[idx];
             program.functions.push(FunctionInfo {
                 entry: first_op,
                 param_count: function.param_count as usize,
                 local_count: function.local_count as usize,
             });
-            for (offset, instruction) in instructions {
-                let bad = |what: &str| LoadError(format!("function #{idx} at {offset}: {what}"));
-                let target = |target: u32| {
-                    if starts.contains(&(target as usize)) {
-                        Ok(op_index[&(target as usize)])
-                    } else {
-                        Err(bad("jump target is not an instruction of this function"))
-                    }
-                };
-                let string = |s: u32| {
-                    if (s as usize) < program.strings.len() {
-                        Ok(s)
-                    } else {
-                        Err(bad("string index out of range"))
-                    }
-                };
-                let local = |i: u16| {
-                    if i < function.local_count {
-                        Ok(i)
-                    } else {
-                        Err(bad("local index out of range"))
-                    }
-                };
-                let global = |i: u16| {
-                    if i < table.global_count {
-                        Ok(i)
-                    } else {
-                        Err(bad("global index out of range"))
-                    }
-                };
-
-                let op = match instruction {
-                    Instruction::PushC(constant) => {
-                        let value = match constant {
-                            Constant::Undefined => Value::Undefined,
-                            Constant::Null => Value::Null,
-                            Constant::Boolean(b) => Value::Boolean(b),
-                            Constant::Number(n) => Value::number(n),
-                            Constant::String(s) => {
-                                Value::String(program.strings[string(s)? as usize].clone())
-                            }
-                            Constant::Date(secs) => Value::date_from_timestamp(secs)
-                                .unwrap_or(Value::Date(Value::empty_date())),
-                        };
-                        program.constants.push(value);
-                        Op::PushC(program.constants.len() as u32 - 1)
-                    }
-                    Instruction::PushV(i) => Op::PushV(local(i)?),
-                    Instruction::PopV(i) => Op::PopV(local(i)?),
-                    Instruction::PushG(i) => Op::PushG(global(i)?),
-                    Instruction::PopG(i) => Op::PopG(global(i)?),
-                    Instruction::Pop => Op::Pop,
-                    Instruction::Dup => Op::Dup,
-                    Instruction::Add => Op::Add,
-                    Instruction::Sub => Op::Sub,
-                    Instruction::Mul => Op::Mul,
-                    Instruction::Div => Op::Div,
-                    Instruction::Mod => Op::Mod,
-                    Instruction::Neg => Op::Neg,
-                    Instruction::Eq => Op::Eq,
-                    Instruction::Ne => Op::Ne,
-                    Instruction::Lt => Op::Lt,
-                    Instruction::Le => Op::Le,
-                    Instruction::Gt => Op::Gt,
-                    Instruction::Ge => Op::Ge,
-                    Instruction::Not => Op::Not,
-                    Instruction::Jump(t) => Op::Jump(target(t)?),
-                    Instruction::JumpIfFalse(t) => Op::JumpIfFalse(target(t)?),
-                    Instruction::Call {
-                        function: callee,
-                        argc,
-                    } => match table.functions.get(callee as usize) {
-                        Some(f) if f.param_count == argc => Op::Call {
-                            function: callee,
-                            argc,
-                        },
-                        _ => return Err(bad("call to a missing function or with wrong arity")),
-                    },
-                    Instruction::CallNative { name, argc } => {
-                        let native = Native::resolve(&program.strings[string(name)? as usize])
-                            .ok_or_else(|| bad("unknown native function"))?;
-                        Op::CallNative { native, argc }
-                    }
-                    Instruction::PushOut(n) => Op::PushOut(n),
-                    Instruction::Return => Op::Return,
-                    Instruction::TryBegin(t) => Op::TryBegin(target(t)?),
-                    Instruction::TryEnd => Op::TryEnd,
-                    Instruction::Raise => Op::Raise,
-                    Instruction::ReRaise => Op::ReRaise,
-                    Instruction::New { type_name, argc } => Op::New {
-                        type_name: string(type_name)?,
-                        argc,
-                    },
-                    Instruction::IndexGet => Op::IndexGet,
-                    Instruction::IndexSet => Op::IndexSet,
-                    Instruction::CallMethod { name, argc } => Op::CallMethod {
-                        name: string(name)?,
-                        argc,
-                    },
-                };
-                program.ops.push(op);
-                program.op_offsets.push(offset as u32);
-            }
         }
         Ok(program)
+    }
+
+    /// Validates the bytecode of a function and translates it one instruction per op.
+    fn translate_function(
+        &mut self,
+        object: &ObjectFile,
+        idx: usize,
+    ) -> Result<Vec<Entry>, LoadError> {
+        let table = &object.function_table;
+        let code = &object.code_section;
+        let function = &table.functions[idx];
+        let fail = |message: String| Err(LoadError(message));
+
+        let start = function.code_offset as usize;
+        let end = start + function.code_len as usize;
+        if end > code.code.len() || u16::from(function.param_count) > function.local_count {
+            return fail(format!("function #{idx} has an invalid layout"));
+        }
+        let instructions = code
+            .instructions(start, end)
+            .map_err(|e| LoadError(format!("function #{idx}: {e}")))?;
+        if !matches!(
+            instructions.last(),
+            Some((
+                _,
+                Instruction::Return
+                    | Instruction::Raise
+                    | Instruction::ReRaise
+                    | Instruction::Jump(_)
+            ))
+        ) {
+            return fail(format!("function #{idx} does not end with a return"));
+        }
+        let starts: HashSet<u32> = instructions.iter().map(|(o, _)| *o as u32).collect();
+
+        let mut entries = Vec::with_capacity(instructions.len());
+        for (offset, instruction) in instructions {
+            let bad = |what: &str| LoadError(format!("function #{idx} at {offset}: {what}"));
+            let target = |target: u32| {
+                if starts.contains(&target) {
+                    Ok(target)
+                } else {
+                    Err(bad("jump target is not an instruction of this function"))
+                }
+            };
+            let string = |s: u32| {
+                if (s as usize) < self.strings.len() {
+                    Ok(s)
+                } else {
+                    Err(bad("string index out of range"))
+                }
+            };
+            let local = |i: u16| {
+                if i < function.local_count {
+                    Ok(i)
+                } else {
+                    Err(bad("local index out of range"))
+                }
+            };
+            let global = |i: u16| {
+                if i < table.global_count {
+                    Ok(i)
+                } else {
+                    Err(bad("global index out of range"))
+                }
+            };
+
+            let op = match instruction {
+                Instruction::PushC(constant) => {
+                    let value = match constant {
+                        Constant::Undefined => Value::Undefined,
+                        Constant::Null => Value::Null,
+                        Constant::Boolean(b) => Value::Boolean(b),
+                        Constant::Number(n) => Value::number(n),
+                        Constant::String(s) => {
+                            Value::String(self.strings[string(s)? as usize].clone())
+                        }
+                        Constant::Date(secs) => Value::date_from_timestamp(secs)
+                            .unwrap_or(Value::Date(Value::empty_date())),
+                    };
+                    self.constants.push(value);
+                    Op::PushC(self.constants.len() as u32 - 1)
+                }
+                Instruction::PushV(i) => Op::PushV(local(i)?),
+                Instruction::PopV(i) => Op::PopV(local(i)?),
+                Instruction::PushG(i) => Op::PushG(global(i)?),
+                Instruction::PopG(i) => Op::PopG(global(i)?),
+                Instruction::Pop => Op::Pop,
+                Instruction::Dup => Op::Dup,
+                Instruction::Add => Op::Arith(Arith::Add),
+                Instruction::Sub => Op::Arith(Arith::Sub),
+                Instruction::Mul => Op::Arith(Arith::Mul),
+                Instruction::Div => Op::Arith(Arith::Div),
+                Instruction::Mod => Op::Arith(Arith::Mod),
+                Instruction::Neg => Op::Neg,
+                Instruction::Eq => Op::Cmp(Cmp::Eq),
+                Instruction::Ne => Op::Cmp(Cmp::Ne),
+                Instruction::Lt => Op::Cmp(Cmp::Lt),
+                Instruction::Le => Op::Cmp(Cmp::Le),
+                Instruction::Gt => Op::Cmp(Cmp::Gt),
+                Instruction::Ge => Op::Cmp(Cmp::Ge),
+                Instruction::Not => Op::Not,
+                Instruction::Jump(t) => Op::Jump(target(t)?),
+                Instruction::JumpIfFalse(t) => Op::JumpIfFalse(target(t)?),
+                Instruction::ForCheck {
+                    counter,
+                    limit,
+                    target: t,
+                } => Op::ForCheck {
+                    counter: local(counter)?,
+                    limit: local(limit)?,
+                    target: target(t)?,
+                },
+                Instruction::ForStep {
+                    counter,
+                    limit,
+                    target: t,
+                } => Op::ForStep {
+                    counter: local(counter)?,
+                    limit: local(limit)?,
+                    target: target(t)?,
+                },
+                Instruction::Call {
+                    function: callee,
+                    argc,
+                } => match table.functions.get(callee as usize) {
+                    Some(f) if f.param_count == argc => Op::Call {
+                        function: callee,
+                        argc,
+                    },
+                    _ => return Err(bad("call to a missing function or with wrong arity")),
+                },
+                Instruction::CallNative { name, argc } => {
+                    let native = Native::resolve(&self.strings[string(name)? as usize])
+                        .ok_or_else(|| bad("unknown native function"))?;
+                    Op::CallNative { native, argc }
+                }
+                Instruction::PushOut(n) => Op::PushOut(n),
+                Instruction::Return => Op::Return,
+                Instruction::TryBegin(t) => Op::TryBegin(target(t)?),
+                Instruction::TryEnd => Op::TryEnd,
+                Instruction::Raise => Op::Raise,
+                Instruction::ReRaise => Op::ReRaise,
+                Instruction::New { type_name, argc } => Op::New {
+                    type_name: string(type_name)?,
+                    argc,
+                },
+                Instruction::IndexGet => Op::IndexGet,
+                Instruction::IndexSet => Op::IndexSet,
+                Instruction::CallMethod { name, argc } => Op::CallMethod {
+                    name: string(name)?,
+                    argc,
+                },
+            };
+            entries.push(Entry {
+                offset: offset as u32,
+                is_target: false,
+                op,
+            });
+        }
+
+        let targets: HashSet<u32> = entries.iter().filter_map(|e| e.op.target()).collect();
+        for entry in &mut entries {
+            entry.is_target = targets.contains(&entry.offset);
+        }
+        Ok(entries)
+    }
+}
+
+/// Replaces instruction sequences with superinstructions. A sequence is only fused when no
+/// jump lands inside it.
+fn fuse(entries: Vec<Entry>) -> Vec<Entry> {
+    let entries = fuse_updates(entries);
+
+    let mut out: Vec<Entry> = Vec::with_capacity(entries.len());
+    let mut i = 0;
+    while i < entries.len() {
+        let first = entries[i];
+        let next = |k: usize| entries.get(i + k).filter(|e| !e.is_target).map(|e| e.op);
+        let (op, len) = match (first.op, next(1), next(2)) {
+            (Op::PushV(slot), Some(Op::Cmp(op)), Some(Op::JumpIfFalse(target))) => {
+                (Op::CmpVJump { op, slot, target }, 3)
+            }
+            (Op::PushC(constant), Some(Op::Cmp(op)), Some(Op::JumpIfFalse(target))) => (
+                Op::CmpCJump {
+                    op,
+                    constant,
+                    target,
+                },
+                3,
+            ),
+            (Op::Cmp(op), Some(Op::JumpIfFalse(target)), _) => (Op::CmpJump { op, target }, 2),
+            (Op::PushV(slot), Some(Op::IndexGet), _) => (Op::IndexGetV(slot), 2),
+            (Op::PushC(constant), Some(Op::IndexGet), _) => (Op::IndexGetC(constant), 2),
+            (Op::PushV(slot), Some(Op::Arith(op)), _) => (Op::ArithV { op, slot }, 2),
+            (Op::PushC(constant), Some(Op::Arith(op)), _) => (Op::ArithC { op, constant }, 2),
+            (op, _, _) => (op, 1),
+        };
+        out.push(Entry { op, ..first });
+        i += len;
+    }
+    out
+}
+
+/// Longest expression considered by [`fuse_updates`].
+const MAX_UPDATE_LEN: usize = 64;
+
+/// `PUSH_V x; <expression>; <arith>; POP_V x` becomes `<expression>; ARITH_TO_V x`.
+///
+/// The expression may only push, read and compute values, so it cannot change `x` and
+/// reading `x` after it gives the same value as before it.
+fn fuse_updates(entries: Vec<Entry>) -> Vec<Entry> {
+    let mut out = Vec::with_capacity(entries.len());
+    let mut i = 0;
+    while i < entries.len() {
+        let Op::PushV(slot) = entries[i].op else {
+            out.push(entries[i]);
+            i += 1;
+            continue;
+        };
+        match update_end(&entries[i + 1..], slot) {
+            Some((len, op)) => {
+                // `entries[i + 1..=i + len]` is the expression, then `<arith>; POP_V`.
+                let expression = &entries[i + 1..=i + len];
+                out.push(Entry {
+                    offset: entries[i].offset,
+                    is_target: entries[i].is_target,
+                    op: expression[0].op,
+                });
+                out.extend_from_slice(&expression[1..]);
+                let last = &entries[i + len + 1];
+                out.push(Entry {
+                    offset: last.offset,
+                    is_target: false,
+                    op: Op::ArithToV { op, slot },
+                });
+                i += len + 3;
+            }
+            None => {
+                out.push(entries[i]);
+                i += 1;
+            }
+        }
+    }
+    out
+}
+
+/// Length of the expression that follows `PUSH_V slot` in an update of `slot`, and the
+/// arithmetic operation applied to it.
+fn update_end(rest: &[Entry], slot: u16) -> Option<(usize, Arith)> {
+    // Values pushed above the value of `slot`.
+    let mut depth = 0usize;
+    for (k, entry) in rest.iter().enumerate().take(MAX_UPDATE_LEN) {
+        if entry.is_target {
+            return None;
+        }
+        match entry.op {
+            Op::PushC(_) | Op::PushV(_) | Op::PushG(_) => depth += 1,
+            Op::Neg | Op::Not if depth >= 1 => {}
+            Op::IndexGet | Op::Cmp(_) if depth >= 2 => depth -= 1,
+            Op::Arith(_) if depth >= 2 => depth -= 1,
+            Op::Arith(op) if depth == 1 && k > 0 => {
+                let store = rest.get(k + 1)?;
+                return (store.op == Op::PopV(slot) && !store.is_target).then_some((k, op));
+            }
+            _ => return None,
+        }
+    }
+    None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn entries(ops: &[Op], targets: &[usize]) -> Vec<Entry> {
+        ops.iter()
+            .enumerate()
+            .map(|(i, &op)| Entry {
+                offset: i as u32,
+                is_target: targets.contains(&i),
+                op,
+            })
+            .collect()
+    }
+
+    fn fused(ops: &[Op], targets: &[usize]) -> Vec<Op> {
+        fuse(entries(ops, targets)).iter().map(|e| e.op).collect()
+    }
+
+    #[test]
+    fn updates_are_fused() {
+        // Сумма = Сумма + А[i] * 2
+        let ops = [
+            Op::PushV(0),
+            Op::PushV(1),
+            Op::PushV(2),
+            Op::IndexGet,
+            Op::PushC(0),
+            Op::Arith(Arith::Mul),
+            Op::Arith(Arith::Add),
+            Op::PopV(0),
+            Op::Return,
+        ];
+        assert_eq!(
+            fused(&ops, &[0]),
+            [
+                Op::PushV(1),
+                Op::IndexGetV(2),
+                Op::ArithC {
+                    op: Arith::Mul,
+                    constant: 0
+                },
+                Op::ArithToV {
+                    op: Arith::Add,
+                    slot: 0
+                },
+                Op::Return,
+            ]
+        );
+        let fused_entries = fuse(entries(&ops, &[0]));
+        assert!(fused_entries[0].is_target);
+        assert_eq!(fused_entries[0].offset, 0);
+
+        // Another variable is stored: no update.
+        let mut other = ops;
+        other[7] = Op::PopV(3);
+        assert_eq!(fused(&other, &[])[0], Op::PushV(0));
+        // A jump into the expression: no update.
+        assert_eq!(fused(&ops, &[4])[0], Op::PushV(0));
+    }
+
+    #[test]
+    fn jump_targets_are_not_fused_away() {
+        let ops = [
+            Op::PushV(0),
+            Op::PushV(1),
+            Op::Cmp(Cmp::Lt),
+            Op::JumpIfFalse(0),
+        ];
+        assert_eq!(
+            fused(&ops, &[]),
+            [
+                Op::PushV(0),
+                Op::CmpVJump {
+                    op: Cmp::Lt,
+                    slot: 1,
+                    target: 0
+                }
+            ]
+        );
+        assert_eq!(
+            fused(&ops, &[3]),
+            [
+                Op::PushV(0),
+                Op::PushV(1),
+                Op::Cmp(Cmp::Lt),
+                Op::JumpIfFalse(0)
+            ]
+        );
     }
 }
