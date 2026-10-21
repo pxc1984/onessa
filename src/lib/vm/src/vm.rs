@@ -23,6 +23,8 @@ struct Frame {
     locals_base: usize,
     /// Operand stack height when the frame was entered.
     stack_base: usize,
+    /// The caller reads the final values of the parameters with `PUSH_OUT`.
+    write_back: bool,
 }
 
 /// An installed `Попытка` handler.
@@ -82,6 +84,7 @@ impl<'a> Vm<'a> {
             pc: entry.entry,
             locals_base: 0,
             stack_base: 0,
+            write_back: false,
         });
         loop {
             match self.execute() {
@@ -292,6 +295,7 @@ impl<'a> Vm<'a> {
                         pc: callee.entry,
                         locals_base: base,
                         stack_base: stack.len(),
+                        write_back: matches!(ops.get(pc), Some(Op::PushOut(_))),
                     });
                     pc = callee.entry;
                 }
@@ -316,10 +320,14 @@ impl<'a> Vm<'a> {
                 Op::Return => {
                     let value = pop!();
                     let frame = frames.pop().expect("return without a frame");
-                    let param_count = functions[frame.function as usize].param_count;
-                    self.out_params.clear();
-                    self.out_params
-                        .extend(locals.drain(frame.locals_base..).take(param_count));
+                    if frame.write_back {
+                        let param_count = functions[frame.function as usize].param_count;
+                        self.out_params.clear();
+                        self.out_params
+                            .extend(locals.drain(frame.locals_base..).take(param_count));
+                    } else {
+                        locals.truncate(frame.locals_base);
+                    }
                     stack.truncate(frame.stack_base);
                     if !self.handlers.is_empty() {
                         let depth = frames.len();
