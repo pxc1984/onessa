@@ -1,0 +1,11 @@
+[package]
+name = "onessa-vm"
+edition.workspace = true
+version.workspace = true
+
+[dependencies]
+onessa-core.workspace = true
+chrono.workspace = true
+
+[lints]
+workspace = true

@@ -556,6 +556,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "onessa-vm"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "onessa-core",
+]
+
+[[package]]
 name = "parking_lot_core"
 version = "0.9.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
