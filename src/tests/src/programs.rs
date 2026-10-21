@@ -320,3 +320,20 @@ fn compile_errors_are_reported() {
         ]
     );
 }
+
+#[test]
+fn v0_example_asset() {
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets/v0.cf");
+    let output = lines(&std::fs::read_to_string(path).unwrap());
+    assert_eq!(output[10], "Фибоначчи(10) = 55");
+    assert_eq!(
+        output[11..],
+        [
+            "Всего вызовов: 453",
+            "второй, первый",
+            "2,5",
+            "Не удалось поделить: Деление на 0",
+            "дата заполнена",
+        ]
+    );
+}
