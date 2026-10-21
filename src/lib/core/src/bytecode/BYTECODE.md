@@ -29,7 +29,7 @@ onessa disasm module.osc           # bytecode listing
 
 ## Category 1: Stack management
 ```
-PUSH_C v       // push constant (tag + payload: undefined, null, bool, f64, string index, date)
+PUSH_C v       // push constant (tag + payload: undefined, null, bool, decimal, string index, date)
 PUSH_V idx     // push local variable with variable index (u16)
 POP_V idx      // pop top of the stack into local variable
 PUSH_G idx     // push module variable (u16)
@@ -74,6 +74,21 @@ Runtime errors (`Деление на 0`, type errors, `Переполнение 
 be handled by `Попытка`. An exception unwinds frames down to the handler's frame and restores
 the operand stack height. `RETURN` drops the handlers installed by the returning frame.
 
+## Category 5: Objects
+```
+NEW type argc             // u32 string index of the type name, u8 constructor argument count
+INDEX_GET                 // pops index and collection, pushes collection[index]
+INDEX_SET                 // pops value, index and collection: collection[index] = value
+CALL_METHOD name argc     // u32 string index of the method name, u8 argument count; pops the
+                          // arguments and the object, pushes the result (Неопределено for
+                          // procedures, which the caller discards when the call is a statement)
+```
+
+Type and method names are resolved at run time, case-insensitively, in Russian or English.
+Objects are shared by reference. Supported types: `Массив` (`Новый Массив`, `Новый Массив(n)`,
+`Новый Массив(n, m, ...)`; 0-based indexing; `Добавить`, `Вставить`, `Количество`, `ВГраница`,
+`Получить`, `Установить`, `Найти`, `Удалить`, `Очистить`).
+
 ## Object file
 
 See `object/mod.rs`. Sections: string table (`STR\0`), metadata references (`MDR\0`, always
@@ -85,10 +100,10 @@ variables), code (`COD\0`) and optional debug info (`DBG\0`, offset → line tab
 Supported: module variables, procedures and functions (defaults, `Знач`, by-reference
 parameters, recursion, `Экспорт` is recorded), `Если`/`ИначеЕсли`/`Иначе`, `Пока`,
 `Для ... По`, `Прервать`/`Продолжить`, `Попытка`/`Исключение`/`ВызватьИсключение`, `?(,,)`,
-primitive types (Неопределено, Null, Булево, Число, Строка, Дата) and the builtins listed in
-`builtins.rs`. Russian and English keywords and names are case-insensitive.
+primitive types (Неопределено, Null, Булево, Число, Строка, Дата), `Массив` with indexing and
+methods, and the builtins listed in `builtins.rs`. Russian and English keywords and names are case-insensitive.
 
-Not yet: objects (`Новый`, properties, methods), collections and `Для Каждого`, indexing,
+Not yet: object properties, other collections (`Структура`, `Соответствие`, ...) and
+`Для Каждого`,
 queries and metadata, preprocessor instructions and compilation directives (`#Если`, `&НаСервере`),
-`Перейти`/labels, `Выполнить`/`Вычислить`. The compiler reports these as errors. Numbers are
-`f64` rather than decimal.
+`Перейти`/labels, `Выполнить`/`Вычислить`. The compiler reports these as errors.
