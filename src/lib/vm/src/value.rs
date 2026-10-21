@@ -3,6 +3,7 @@ use rust_decimal::Decimal;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
+use std::cell::RefCell;
 use std::rc::Rc;
 
 /// Runtime value of the language. Strings are immutable and shared.
@@ -14,8 +15,8 @@ pub enum Value {
     Number(Decimal),
     String(Rc<str>),
     Date(NaiveDateTime),
-    /// Array (Массив) - ordered collection with 1-based indexing
-    Array(Vec<Value>),
+    /// Массив: a 0-based ordered collection shared by reference, like every 1C object.
+    Array(Rc<RefCell<Vec<Value>>>),
     /// Structure (Структура) - key-value pairs with string keys
     Structure(HashMap<String, Value>),
     /// Object - instance with properties and methods
@@ -35,7 +36,7 @@ impl PartialEq for Value {
             (Value::Number(a), Value::Number(b)) => a == b,
             (Value::String(a), Value::String(b)) => a == b,
             (Value::Date(a), Value::Date(b)) => a == b,
-            (Value::Array(a), Value::Array(b)) => a == b,
+            (Value::Array(a), Value::Array(b)) => Rc::ptr_eq(a, b),
             (Value::Structure(a), Value::Structure(b)) => a == b,
             (Value::Object { type_name: tn1, properties: p1, .. }, Value::Object { type_name: tn2, properties: p2, .. }) => {
                 tn1 == tn2 && p1 == p2
@@ -51,6 +52,10 @@ pub const NOT_A_BOOLEAN: &str = "Преобразование значения �
 impl Value {
     pub fn string(s: impl Into<Rc<str>>) -> Self {
         Value::String(s.into())
+    }
+
+    pub fn array(items: Vec<Value>) -> Self {
+        Value::Array(Rc::new(RefCell::new(items)))
     }
 
     pub fn date_from_timestamp(secs: i64) -> Option<Self> {
@@ -134,7 +139,7 @@ impl Value {
             Value::Number(n) => *n != Decimal::ZERO,
             Value::String(s) => !s.trim().is_empty(),
             Value::Date(d) => *d != Self::empty_date(),
-            Value::Array(arr) => !arr.is_empty(),
+            Value::Array(arr) => !arr.borrow().is_empty(),
             Value::Structure(map) => !map.is_empty(),
             Value::Object { properties, .. } => !properties.is_empty(),
         }
@@ -160,9 +165,7 @@ impl Display for Value {
                 d.minute(),
                 d.second()
             ),
-            Value::Array(arr) => {
-                write!(f, "Массив[{}]", arr.len())
-            }
+            Value::Array(_) => write!(f, "Массив"),
             Value::Structure(map) => {
                 write!(f, "Структура{{{}}}", map.len())
             }
@@ -175,44 +178,7 @@ impl Display for Value {
 
 /// Format Decimal with Russian locale: `1 234 567,5` (groups separated by non-breaking space).
 fn format_decimal(n: Decimal) -> String {
-    // Normalize to remove trailing zeros
-    let n = n.normalize();
-    
-    let (int_part, frac_part) = if n.scale() == 0 {
-        (n.trunc().to_string(), None)
-    } else {
-        let s = n.to_string();
-        if let Some((i, f)) = s.split_once('.') {
-            // Trim trailing zeros from fractional part
-            let f = f.trim_end_matches('0');
-            if f.is_empty() {
-                (i.to_string(), None)
-            } else {
-                (i.to_string(), Some(f.to_string()))
-            }
-        } else {
-            (s, None)
-        }
-    };
-
-    let mut out = String::new();
-    let is_negative = n.is_sign_negative();
-    if is_negative && int_part != "0" {
-        out.push('-');
-    }
-    let int_digits = int_part.trim_start_matches('-');
-    let len = int_digits.len();
-    for (i, digit) in int_digits.chars().enumerate() {
-        if i > 0 && (len - i) % 3 == 0 {
-            out.push('\u{00A0}');
-        }
-        out.push(digit);
-    }
-    if let Some(frac) = frac_part {
-        out.push(',');
-        out.push_str(&frac);
-    }
-    out
+    crate::format::format_number(n, &crate::format::NumberFormat::default())
 }
 
 #[cfg(test)]
@@ -239,8 +205,10 @@ mod tests {
         assert_eq!(Value::Undefined.to_string(), "");
         let date = Value::date_from_timestamp(1_704_067_200).unwrap();
         assert_eq!(date.to_string(), "01.01.2024 0:00:00");
-        let arr = Value::Array(vec![Value::Number(Decimal::ONE)]);
-        assert_eq!(arr.to_string(), "Массив[1]");
+        let arr = Value::array(vec![Value::Number(Decimal::ONE)]);
+        assert_eq!(arr.to_string(), "Массив");
+        assert_eq!(arr, arr.clone());
+        assert_ne!(arr, Value::array(vec![Value::Number(Decimal::ONE)]));
         let mut map = HashMap::new();
         map.insert("key".to_string(), Value::Number(Decimal::ONE));
         let structure = Value::Structure(map);

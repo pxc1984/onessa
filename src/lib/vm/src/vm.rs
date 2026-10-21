@@ -1,5 +1,6 @@
 use crate::error::{LoadError, RuntimeError};
 use crate::native::{self, Native, NativeContext};
+use crate::objects;
 use crate::value::Value;
 use onessa_core::bytecode::{Constant, Instruction};
 use onessa_core::object::{FunctionEntry, ObjectFile};
@@ -42,6 +43,8 @@ pub struct Vm<'a> {
     /// Native function and string constant of every string table index used by the code.
     natives: HashMap<u32, Native>,
     strings: Vec<Rc<str>>,
+    /// Lowercased strings, for case-insensitive type and method names.
+    lowercase: Vec<Box<str>>,
     stack: Vec<Value>,
     locals: Vec<Value>,
     globals: Vec<Value>,
@@ -60,11 +63,13 @@ impl<'a> Vm<'a> {
             .map(|idx| Rc::from(&*object.string_table.get(idx).unwrap_or_default()))
             .collect();
         let natives = validate(object, &strings)?;
+        let lowercase = strings.iter().map(|s| s.to_lowercase().into()).collect();
         Ok(Self {
             object,
             output,
             natives,
             strings,
+            lowercase,
             stack: Vec::new(),
             locals: Vec::new(),
             globals: vec![Value::Undefined; object.function_table.global_count as usize],
@@ -113,6 +118,16 @@ impl<'a> Vm<'a> {
         self.stack
             .pop()
             .ok_or_else(|| "internal error: operand stack underflow".to_string())
+    }
+
+    /// Pops the top `count` values, in the order they were pushed.
+    fn pop_n(&mut self, count: u8) -> Result<Vec<Value>, String> {
+        let split = self
+            .stack
+            .len()
+            .checked_sub(count as usize)
+            .ok_or("internal error: operand stack underflow")?;
+        Ok(self.stack.split_off(split))
     }
 
     fn pop2(&mut self) -> Result<(Value, Value), String> {
@@ -231,21 +246,11 @@ impl<'a> Vm<'a> {
                 if self.frames.len() >= MAX_CALL_DEPTH {
                     return Err("Переполнение стека".to_string());
                 }
-                let split = self
-                    .stack
-                    .len()
-                    .checked_sub(argc as usize)
-                    .ok_or("internal error: operand stack underflow")?;
-                let args = self.stack.split_off(split);
+                let args = self.pop_n(argc)?;
                 self.enter(function, args);
             }
             Instruction::CallNative { name, argc } => {
-                let split = self
-                    .stack
-                    .len()
-                    .checked_sub(argc as usize)
-                    .ok_or("internal error: operand stack underflow")?;
-                let args = self.stack.split_off(split);
+                let args = self.pop_n(argc)?;
                 let ctx = NativeContext {
                     output: &mut *self.output,
                     error_description: self.error_description.as_deref(),
@@ -277,6 +282,32 @@ impl<'a> Vm<'a> {
             Instruction::ReRaise => {
                 let message = self.error_description.as_deref().unwrap_or_default();
                 return Err(message.to_string());
+            }
+            Instruction::New { type_name, argc } => {
+                let args = self.pop_n(argc)?;
+                let (lower, name) = (
+                    &self.lowercase[type_name as usize],
+                    &self.strings[type_name as usize],
+                );
+                let value = objects::construct(lower, name, &args)?;
+                self.stack.push(value);
+            }
+            Instruction::IndexGet => {
+                let (collection, index) = self.pop2()?;
+                self.stack.push(objects::index_get(&collection, &index)?);
+            }
+            Instruction::IndexSet => {
+                let value = self.pop()?;
+                let (collection, index) = self.pop2()?;
+                objects::index_set(&collection, &index, value)?;
+            }
+            Instruction::CallMethod { name, argc } => {
+                let args = self.pop_n(argc)?;
+                let object = self.pop()?;
+                let (lower, display) =
+                    (&self.lowercase[name as usize], &self.strings[name as usize]);
+                let result = objects::call_method(&object, lower, display, &args)?;
+                self.stack.push(result);
             }
         }
         Ok(Step::Continue)
@@ -401,7 +432,11 @@ fn validate(object: &ObjectFile, strings: &[Rc<str>]) -> Result<HashMap<u32, Nat
         for (offset, instruction) in instructions {
             let bad = |what: &str| LoadError(format!("function #{idx} at {offset}: {what}"));
             match instruction {
-                Instruction::PushC(Constant::String(s)) if s as usize >= strings.len() => {
+                Instruction::PushC(Constant::String(s))
+                | Instruction::New { type_name: s, .. }
+                | Instruction::CallMethod { name: s, .. }
+                    if s as usize >= strings.len() =>
+                {
                     return Err(bad("string index out of range"))
                 }
                 Instruction::PushV(i) | Instruction::PopV(i) if i >= function.local_count => {

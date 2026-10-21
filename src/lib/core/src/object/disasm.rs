@@ -38,7 +38,11 @@ impl ObjectFile {
                 write!(out, "  {offset:04}  {instruction}").unwrap();
                 let string = match instruction {
                     Instruction::PushC(Constant::String(idx)) => Some(idx),
-                    Instruction::CallNative { name, .. } => Some(name),
+                    Instruction::CallNative { name, .. }
+                    | Instruction::CallMethod { name, .. }
+                    | Instruction::New {
+                        type_name: name, ..
+                    } => Some(name),
                     _ => None,
                 };
                 if let Some(text) = string.and_then(|idx| self.string_table.get(idx)) {

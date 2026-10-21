@@ -40,6 +40,7 @@ pub const BUILTINS: &[Builtin] = &[
     function("Строка", "String", 1, 1),
     function("Число", "Number", 1, 1),
     function("Булево", "Boolean", 1, 1),
+    function("Формат", "Format", 1, 2),
     function("СтрДлина", "StrLen", 1, 1),
     function("ВРег", "Upper", 1, 1),
     function("НРег", "Lower", 1, 1),

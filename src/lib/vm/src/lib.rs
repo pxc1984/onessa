@@ -1,7 +1,9 @@
 //! Stack virtual machine executing Onessa object files.
 
 mod error;
+mod format;
 mod native;
+mod objects;
 mod value;
 mod vm;
 

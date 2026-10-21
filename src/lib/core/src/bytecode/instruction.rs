@@ -52,6 +52,24 @@ pub enum Instruction<L = u32> {
     TryEnd,
     Raise,
     ReRaise,
+
+    // Category 5: Objects
+    /// Creates an object of the type named by string `type_name` from `argc` constructor
+    /// arguments.
+    New {
+        type_name: u32,
+        argc: u8,
+    },
+    /// Pops the index and the collection, pushes the element.
+    IndexGet,
+    /// Pops the value, the index and the collection, stores the element.
+    IndexSet,
+    /// Pops `argc` arguments and the object, calls the method named by string `name` and
+    /// pushes its result (`Неопределено` for procedures).
+    CallMethod {
+        name: u32,
+        argc: u8,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -113,6 +131,11 @@ mod opcode {
     pub const TRY_END: u8 = 0x31;
     pub const RAISE: u8 = 0x32;
     pub const RERAISE: u8 = 0x33;
+
+    pub const NEW: u8 = 0x40;
+    pub const INDEX_GET: u8 = 0x41;
+    pub const INDEX_SET: u8 = 0x42;
+    pub const CALL_METHOD: u8 = 0x43;
 }
 
 impl<L> Instruction<L> {
@@ -150,6 +173,10 @@ impl<L> Instruction<L> {
             TryEnd => TryEnd,
             Raise => Raise,
             ReRaise => ReRaise,
+            New { type_name, argc } => New { type_name, argc },
+            IndexGet => IndexGet,
+            IndexSet => IndexSet,
+            CallMethod { name, argc } => CallMethod { name, argc },
         }
     }
 }
@@ -224,6 +251,16 @@ impl Instruction<u32> {
             TryEnd => out.push(opcode::TRY_END),
             Raise => out.push(opcode::RAISE),
             ReRaise => out.push(opcode::RERAISE),
+            New { type_name, argc } => {
+                encode_u32(out, opcode::NEW, type_name);
+                out.push(argc);
+            }
+            IndexGet => out.push(opcode::INDEX_GET),
+            IndexSet => out.push(opcode::INDEX_SET),
+            CallMethod { name, argc } => {
+                encode_u32(out, opcode::CALL_METHOD, name);
+                out.push(argc);
+            }
         }
     }
 
@@ -237,7 +274,7 @@ impl Instruction<u32> {
             PushC(_) | PushOut(_) => 2,
             PushV(_) | PopV(_) | PushG(_) | PopG(_) => 3,
             Jump(_) | JumpIfFalse(_) | TryBegin(_) => 5,
-            Call { .. } | CallNative { .. } => 6,
+            Call { .. } | CallNative { .. } | New { .. } | CallMethod { .. } => 6,
             _ => 1,
         }
     }
@@ -304,6 +341,16 @@ impl Instruction<u32> {
             opcode::TRY_END => TryEnd,
             opcode::RAISE => Raise,
             opcode::RERAISE => ReRaise,
+            opcode::NEW => New {
+                type_name: read_u32(code, pc)?,
+                argc: read_u8(code, pc)?,
+            },
+            opcode::INDEX_GET => IndexGet,
+            opcode::INDEX_SET => IndexSet,
+            opcode::CALL_METHOD => CallMethod {
+                name: read_u32(code, pc)?,
+                argc: read_u8(code, pc)?,
+            },
             opcode => return Err(DecodeError::UnknownOpcode { offset, opcode }),
         };
         Ok(instruction)
@@ -344,6 +391,10 @@ impl<L: Display> Display for Instruction<L> {
             TryEnd => write!(f, "TRY_END"),
             Raise => write!(f, "RAISE"),
             ReRaise => write!(f, "RERAISE"),
+            New { type_name, argc } => write!(f, "NEW str#{type_name} {argc}"),
+            IndexGet => write!(f, "INDEX_GET"),
+            IndexSet => write!(f, "INDEX_SET"),
+            CallMethod { name, argc } => write!(f, "CALL_METHOD str#{name} {argc}"),
         }
     }
 }
@@ -425,6 +476,13 @@ mod tests {
             TryEnd,
             Raise,
             ReRaise,
+            New {
+                type_name: 4,
+                argc: 1,
+            },
+            IndexGet,
+            IndexSet,
+            CallMethod { name: 5, argc: 2 },
         ];
 
         let mut code = Vec::new();
