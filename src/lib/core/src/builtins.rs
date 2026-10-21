@@ -116,13 +116,37 @@ const fn method(
 /// Methods of `Массив`.
 pub const ARRAY_METHODS: &[Method] = &[
     method(ArrayMethod::Add, "Добавить", "Add", 1, Returns::Nothing),
-    method(ArrayMethod::Insert, "Вставить", "Insert", 2, Returns::Nothing),
-    method(ArrayMethod::Count, "Количество", "Count", 0, Returns::Number),
-    method(ArrayMethod::UBound, "ВГраница", "UBound", 0, Returns::Number),
+    method(
+        ArrayMethod::Insert,
+        "Вставить",
+        "Insert",
+        2,
+        Returns::Nothing,
+    ),
+    method(
+        ArrayMethod::Count,
+        "Количество",
+        "Count",
+        0,
+        Returns::Number,
+    ),
+    method(
+        ArrayMethod::UBound,
+        "ВГраница",
+        "UBound",
+        0,
+        Returns::Number,
+    ),
     method(ArrayMethod::Get, "Получить", "Get", 1, Returns::Any),
     method(ArrayMethod::Set, "Установить", "Set", 2, Returns::Nothing),
     method(ArrayMethod::Find, "Найти", "Find", 1, Returns::Any),
-    method(ArrayMethod::Delete, "Удалить", "Delete", 1, Returns::Nothing),
+    method(
+        ArrayMethod::Delete,
+        "Удалить",
+        "Delete",
+        1,
+        Returns::Nothing,
+    ),
     method(ArrayMethod::Clear, "Очистить", "Clear", 0, Returns::Nothing),
 ];
 
