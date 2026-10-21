@@ -1,0 +1,16 @@
+[package]
+name = "onessa-codegen"
+edition.workspace = true
+version.workspace = true
+
+[dependencies]
+onessa-cfg.workspace = true
+onessa-core.workspace = true
+
+[dev-dependencies]
+onessa-ast.workspace = true
+onessa-lexer.workspace = true
+logos.workspace = true
+
+[lints]
+workspace = true

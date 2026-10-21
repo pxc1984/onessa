@@ -19,6 +19,7 @@ Every section starts with its own 4 byte magic and a u32 version. All integers a
 */
 mod code_section;
 mod debug_info;
+mod disasm;
 mod function_table;
 mod metadata_ref_table;
 mod object_file;

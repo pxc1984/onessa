@@ -78,26 +78,47 @@ impl Terminator {
 }
 
 impl Function {
-    /// Blocks reachable from the entry block, in creation order.
+    /// Blocks reachable from the entry block in reverse postorder, which is also the layout
+    /// order: a block comes before its successors (back edges aside), and the first successor
+    /// of a block tends to directly follow it.
     ///
     /// Exception handlers count as reachable through the `TRY_BEGIN` that installs them.
     pub fn reachable_blocks(&self) -> Vec<BlockId> {
-        let mut seen = vec![false; self.blocks.len()];
-        let mut stack = vec![0];
-        while let Some(id) = stack.pop() {
-            if std::mem::replace(&mut seen[id], true) {
-                continue;
-            }
+        let successors = |id: BlockId| {
             let block = &self.blocks[id];
-            for (instruction, _) in &block.instructions {
-                if let Instruction::TryBegin(handler) = instruction {
-                    stack.push(*handler);
+            let mut next: Vec<BlockId> = block
+                .terminator
+                .map(|(terminator, _)| terminator.successors())
+                .unwrap_or_default();
+            next.extend(block.instructions.iter().filter_map(|(instruction, _)| {
+                match instruction {
+                    Instruction::TryBegin(handler) => Some(*handler),
+                    _ => None,
+                }
+            }));
+            // `pop` visits the last successor first, so it finishes first and is placed last.
+            next
+        };
+
+        let mut visited = vec![false; self.blocks.len()];
+        let mut postorder = Vec::new();
+        let mut stack = vec![(0, successors(0))];
+        visited[0] = true;
+        while let Some((id, pending)) = stack.last_mut() {
+            match pending.pop() {
+                Some(next) if !visited[next] => {
+                    visited[next] = true;
+                    let next_successors = successors(next);
+                    stack.push((next, next_successors));
+                }
+                Some(_) => {}
+                None => {
+                    postorder.push(*id);
+                    stack.pop();
                 }
             }
-            if let Some((terminator, _)) = &block.terminator {
-                stack.extend(terminator.successors());
-            }
         }
-        (0..self.blocks.len()).filter(|&id| seen[id]).collect()
+        postorder.reverse();
+        postorder
     }
 }

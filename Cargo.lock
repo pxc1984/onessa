@@ -502,6 +502,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "onessa-codegen"
+version = "0.1.0"
+dependencies = [
+ "logos",
+ "onessa-ast",
+ "onessa-cfg",
+ "onessa-core",
+ "onessa-lexer",
+]
+
+[[package]]
 name = "onessa-core"
 version = "0.1.0"
 dependencies = [

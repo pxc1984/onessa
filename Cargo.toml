@@ -14,6 +14,7 @@ members = [
     "src/bin",
     "src/lib/ast",
     "src/lib/cfg",
+    "src/lib/codegen",
     "src/lib/core",
     "src/lib/lexer",
     "src/lib/utils",
@@ -87,6 +88,7 @@ onessa-core = { path = "src/lib/core"}
 onessa-utils = { path = "src/lib/utils"}
 onessa-logging = { path = "src/lib/utils/logging"}
 onessa-cfg = { path = "src/lib/cfg" }
+onessa-codegen = { path = "src/lib/codegen" }
 
 # Asynchronous
 tokio = { version = "1.49.0", features = [
