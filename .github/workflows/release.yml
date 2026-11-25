@@ -70,7 +70,7 @@ jobs:
         include:
           - target: x86_64-unknown-linux-musl
             artifact_name: onessa-linux-x86_64
-          - target: x86_64-pc-windows-msvc
+          - target: x86_64-pc-windows-gnu
             artifact_name: onessa-windows-x86_64.exe
     steps:
       - name: Checkout repository
@@ -128,7 +128,7 @@ jobs:
       - name: Collect release binary
         run: |
           mkdir -p release-artifacts
-          if [ "${{ matrix.target }}" = "x86_64-pc-windows-msvc" ]; then
+          if [ "${{ matrix.target }}" = "x86_64-pc-windows-gnu" ]; then
             cp target/${{ matrix.target }}/production/onessa.exe release-artifacts/${{ matrix.artifact_name }}
           else
             cp target/${{ matrix.target }}/production/onessa release-artifacts/${{ matrix.artifact_name }}
