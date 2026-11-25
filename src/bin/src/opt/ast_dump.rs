@@ -1,6 +1,6 @@
 use log::{debug, info};
-use rowan::{NodeOrToken, SyntaxNode};
 use onessa_ast::Lang;
+use rowan::{NodeOrToken, SyntaxNode};
 
 pub fn ast_dump(root: &SyntaxNode<Lang>) {
     fn dump(node: &SyntaxNode<Lang>, indent: usize) {

@@ -1,4 +1,4 @@
-use crate::{build_cfg, Diagnostic, Module};
+use crate::{Diagnostic, Module, build_cfg};
 use logos::Logos;
 use onessa_lexer::Token;
 

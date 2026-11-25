@@ -1,5 +1,5 @@
-use crate::lower::syntax::{child_nodes, child_tokens, first_token_kind};
 use crate::lower::Context;
+use crate::lower::syntax::{child_nodes, child_tokens, first_token_kind};
 use logos::Logos;
 use onessa_ast::{Lang, SyntaxKind};
 use onessa_core::bytecode::Constant;

@@ -1,9 +1,9 @@
 extern crate core;
 
-use std::process::exit;
 use clap::Parser;
 use log::debug;
 use onessa_logging::init_logging;
+use std::process::exit;
 
 use crate::cli::{CLIArgs, Command};
 use crate::compile::compile;

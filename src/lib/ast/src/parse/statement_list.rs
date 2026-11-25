@@ -1,5 +1,5 @@
-use crate::parse::ParseSession;
 use crate::SyntaxKind;
+use crate::parse::ParseSession;
 
 impl<'a> ParseSession<'a> {
     pub fn parse_statement_list(&mut self) {

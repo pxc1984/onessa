@@ -1,5 +1,5 @@
-use crate::parse::ParseSession;
 use crate::SyntaxKind;
+use crate::parse::ParseSession;
 use onessa_lexer::Token;
 
 /// Binding power of the `Не`/`Not` operand: tighter than `И`, looser than comparisons.

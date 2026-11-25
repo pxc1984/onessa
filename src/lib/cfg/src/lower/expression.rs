@@ -1,8 +1,8 @@
+use crate::Terminator;
 use crate::lower::function::{FunctionBuilder, Slot};
 use crate::lower::literal;
 use crate::lower::syntax::{child_nodes, child_tokens, first_token_kind, identifier_text};
 use crate::types::{self, Type};
-use crate::Terminator;
 use onessa_ast::{Lang, SyntaxKind};
 use onessa_core::builtins::{self, Returns};
 use onessa_core::bytecode::{Constant, Instruction, ValueType};

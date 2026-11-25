@@ -30,6 +30,6 @@ pub use code_section::CodeSection;
 pub use debug_info::DebugInfo;
 pub use function_table::{FunctionEntry, FunctionTable};
 pub use metadata_ref_table::MetadataRefTable;
-pub use object_file::{ObjectFile, MAGIC_NUMBER, OBJECT_FILE_VERSION};
+pub use object_file::{MAGIC_NUMBER, OBJECT_FILE_VERSION, ObjectFile};
 pub use string_table::StringTable;
 pub use table_trait::{Deserializable, Serializable};

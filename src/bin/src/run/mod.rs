@@ -1,7 +1,7 @@
 use crate::cli::{DisasmArgs, RunArgs};
 use crate::compile::compile_file;
 use log::{debug, error};
-use onessa_core::object::{ObjectFile, MAGIC_NUMBER};
+use onessa_core::object::{MAGIC_NUMBER, ObjectFile};
 use onessa_vm::Vm;
 use std::io::Read;
 use std::path::Path;

@@ -1,5 +1,5 @@
-use crate::parse::ParseSession;
 use crate::SyntaxKind;
+use crate::parse::ParseSession;
 use onessa_lexer::Token;
 
 impl<'a> ParseSession<'a> {
@@ -49,8 +49,10 @@ impl<'a> ParseSession<'a> {
     /// Adds the skipped source text before `offset` (whitespace, comments) as a trivia token.
     pub fn trivia_until(&mut self, offset: usize) {
         if offset > self.last_end {
-            self.builder
-                .token(SyntaxKind::Trivia.into(), &self.source[self.last_end..offset]);
+            self.builder.token(
+                SyntaxKind::Trivia.into(),
+                &self.source[self.last_end..offset],
+            );
             self.last_end = offset;
         }
     }

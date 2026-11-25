@@ -3,7 +3,7 @@ use crate::object::debug_info::DebugInfo;
 use crate::object::function_table::FunctionTable;
 use crate::object::metadata_ref_table::MetadataRefTable;
 use crate::object::string_table::StringTable;
-use crate::object::table_trait::{invalid_data, Deserializable, Serializable};
+use crate::object::table_trait::{Deserializable, Serializable, invalid_data};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use std::io::{Read, Write};
 use std::path::Path;

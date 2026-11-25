@@ -1,5 +1,5 @@
-use crate::parse::ParseSession;
 use crate::SyntaxKind;
+use crate::parse::ParseSession;
 use onessa_lexer::Token;
 
 impl<'a> ParseSession<'a> {

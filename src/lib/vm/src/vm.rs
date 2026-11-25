@@ -2,7 +2,7 @@ use crate::error::{LoadError, RuntimeError};
 use crate::native::{self, NativeContext};
 use crate::objects;
 use crate::program::{Arith, Cmp, Op, Program};
-use crate::value::{Value, NOT_A_NUMBER};
+use crate::value::{NOT_A_NUMBER, Value};
 use onessa_core::object::{DebugInfo, ObjectFile};
 use rust_decimal::Decimal;
 use std::cmp::Ordering;
@@ -310,11 +310,12 @@ impl<'a> Vm<'a> {
                     stack.push(result);
                 }
                 Op::PushOut(n) => {
-                    let value = check!(self
-                        .out_params
-                        .get(n as usize)
-                        .cloned()
-                        .ok_or("internal error: PUSH_OUT without a preceding call"));
+                    let value = check!(
+                        self.out_params
+                            .get(n as usize)
+                            .cloned()
+                            .ok_or("internal error: PUSH_OUT without a preceding call")
+                    );
                     stack.push(value);
                 }
                 Op::Return => {

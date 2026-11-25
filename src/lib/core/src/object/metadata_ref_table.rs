@@ -1,5 +1,5 @@
 use crate::object::table_trait::{
-    invalid_data, read_section_header, write_section_header, Deserializable, Serializable,
+    Deserializable, Serializable, invalid_data, read_section_header, write_section_header,
 };
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use std::io::{Read, Write};

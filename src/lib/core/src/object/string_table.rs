@@ -1,9 +1,9 @@
 use crate::object::table_trait::{
-    invalid_data, read_section_header, write_section_header, Deserializable, Serializable,
+    Deserializable, Serializable, invalid_data, read_section_header, write_section_header,
 };
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
-use dashmap::mapref::entry::Entry;
 use dashmap::DashMap;
+use dashmap::mapref::entry::Entry;
 use std::io::{Read, Write};
 use std::sync::{Arc, RwLock};
 

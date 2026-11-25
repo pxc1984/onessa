@@ -698,10 +698,7 @@ mod tests {
 
     #[test]
     fn test_crlf_and_bom() {
-        assert_tokens(
-            "\u{FEFF}Если\r\nТогда\r\n",
-            &[Token::If, Token::Then],
-        );
+        assert_tokens("\u{FEFF}Если\r\nТогда\r\n", &[Token::If, Token::Then]);
     }
 
     #[test]

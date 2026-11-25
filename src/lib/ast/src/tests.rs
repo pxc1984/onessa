@@ -1,4 +1,4 @@
-use crate::{build_ast, Lang, SyntaxKind};
+use crate::{Lang, SyntaxKind, build_ast};
 use logos::Logos;
 use onessa_lexer::Token;
 use rowan::{NodeOrToken, SyntaxNode};

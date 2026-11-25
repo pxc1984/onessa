@@ -11,7 +11,7 @@ mod lower;
 pub mod types;
 
 pub use diagnostic::Diagnostic;
-pub use lower::{build_cfg, build_cfg_with, Options};
+pub use lower::{Options, build_cfg, build_cfg_with};
 
 use onessa_core::bytecode::Instruction;
 use onessa_core::object::StringTable;

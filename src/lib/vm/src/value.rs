@@ -281,9 +281,11 @@ mod tests {
         assert!(Value::string("abc").to_number().is_err());
         assert_eq!(Value::Number(Decimal::new(2, 0)).to_boolean(), Ok(true));
         assert!(Value::Undefined.to_boolean().is_err());
-        assert!(Value::Number(Decimal::ONE)
-            .compare(&Value::string("1"))
-            .is_err());
+        assert!(
+            Value::Number(Decimal::ONE)
+                .compare(&Value::string("1"))
+                .is_err()
+        );
         assert_eq!(Value::number(Decimal::new(20, 1)), Value::Int(2));
         assert!(matches!(Value::number(Decimal::new(20, 1)), Value::Int(2)));
         assert!(matches!(

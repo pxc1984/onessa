@@ -44,7 +44,6 @@ pub struct RunArgs {
     /// first assigned to it
     #[clap(long)]
     pub strict: bool,
-
     // TODO: add ability to pass cli arguments to the command by placing -- after onessa run
     //      example: onessa run -- --help
     //                             ------ arguments for a program

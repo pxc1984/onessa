@@ -1,7 +1,7 @@
+use crate::Terminator;
 use crate::lower::function::{FunctionBuilder, LoopTargets, Slot};
 use crate::lower::syntax::{child_nodes, identifier_text};
 use crate::types::Type;
-use crate::Terminator;
 use onessa_ast::{Lang, SyntaxKind};
 use onessa_core::bytecode::{Constant, Instruction, ValueType};
 use rowan::SyntaxNode;
